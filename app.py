@@ -6,9 +6,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# 除錯：確認程式開始執行
-st.write("🔄 程式開始載入...")
-
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -17,8 +14,6 @@ import io
 import base64
 from datetime import datetime
 import pandas as pd
-
-st.write("✅ 所有模組載入成功")
 
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -388,7 +383,7 @@ def main():
         st.markdown("---")
         
         # 提交按鈕
-        if st.button("✅ 確認新增", type="primary", use_container_width=True):
+        if st.button("✅ 確認新增", type="primary", width="stretch"):
             if not folder_id:
                 st.error("❌ 請先在側邊欄設定 Google Drive Folder ID")
             elif not subject or not agency:
@@ -439,7 +434,7 @@ def main():
         else:
             st.dataframe(
                 df[['ID', 'Date', 'Type', 'Agency', 'Subject']],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True
             )
     
@@ -470,7 +465,7 @@ def main():
                     if st.button(
                         button_label,
                         key=f"select_{doc_id}",
-                        use_container_width=True
+                        width="stretch"
                     ):
                         st.session_state.selected_doc_id = doc_id
                 
