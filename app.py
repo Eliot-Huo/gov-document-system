@@ -244,6 +244,33 @@ def download_from_drive(drive_service, file_id):
         st.error(f"從 Google Drive 下載失敗: {str(e)}")
         return None
 
+def delete_from_drive(drive_service, file_id):
+    """從 Google Drive 刪除檔案（支援共用雲端硬碟）"""
+    try:
+        drive_service.files().delete(
+            fileId=file_id,
+            supportsAllDrives=True
+        ).execute()
+        return True
+    except Exception as e:
+        st.error(f"從 Google Drive 刪除失敗: {str(e)}")
+        return False
+
+def delete_document_from_sheet(worksheet, doc_id):
+    """從 Google Sheet 刪除公文資料"""
+    try:
+        # 找到該筆資料的列號
+        cell = worksheet.find(doc_id)
+        if cell:
+            worksheet.delete_rows(cell.row)
+            return True
+        else:
+            st.error(f"找不到公文 {doc_id}")
+            return False
+    except Exception as e:
+        st.error(f"從 Google Sheet 刪除失敗: {str(e)}")
+        return False
+
 def display_pdf_from_bytes(pdf_bytes):
     """將 PDF bytes 轉為 base64 並顯示"""
     if not pdf_bytes:
@@ -491,6 +518,40 @@ def main():
                     
                     if selected_row.get('Parent_ID'):
                         st.markdown(f"**回覆：** `{selected_row['Parent_ID']}`")
+                    
+                    st.markdown("---")
+                    
+                    # 刪除按鈕區
+                    with st.expander("⚠️ 危險操作"):
+                        st.warning("刪除後無法復原！")
+                        
+                        # 使用確認機制
+                        confirm_text = st.text_input(
+                            f"請輸入公文字號 `{selected_id}` 以確認刪除：",
+                            key="delete_confirm"
+                        )
+                        
+                        if st.button("🗑️ 確認刪除", type="secondary"):
+                            if confirm_text == selected_id:
+                                with st.spinner("刪除中..."):
+                                    drive_file_id = selected_row.get('Drive_File_ID')
+                                    
+                                    # 1. 刪除 Google Drive 檔案
+                                    drive_deleted = True
+                                    if drive_file_id:
+                                        drive_deleted = delete_from_drive(drive_service, drive_file_id)
+                                    
+                                    # 2. 刪除 Google Sheet 資料
+                                    if drive_deleted:
+                                        sheet_deleted = delete_document_from_sheet(worksheet, selected_id)
+                                        
+                                        if sheet_deleted:
+                                            st.success(f"✅ 公文 {selected_id} 已刪除！")
+                                            # 清除選擇狀態
+                                            del st.session_state.selected_doc_id
+                                            st.rerun()
+                            else:
+                                st.error("❌ 輸入的公文字號不正確，請重新輸入")
                     
                     st.markdown("---")
                     
