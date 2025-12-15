@@ -247,28 +247,48 @@ def download_from_drive(drive_service, file_id):
 def delete_from_drive(drive_service, file_id):
     """從 Google Drive 刪除檔案（支援共用雲端硬碟）"""
     try:
-        # 先確認檔案存在（使用 supportsAllDrives）
+        # 先確認檔案存在
         try:
             file_info = drive_service.files().get(
                 fileId=file_id,
                 supportsAllDrives=True,
-                fields='id, name'
+                fields='id, name, driveId'
             ).execute()
             st.info(f"📋 找到檔案: {file_info.get('name', 'unknown')}")
+            drive_id = file_info.get('driveId')  # 取得共用雲端硬碟 ID
         except Exception as check_error:
             st.warning(f"⚠️ 無法確認檔案: {str(check_error)}")
+            drive_id = None
         
-        # 執行刪除
-        drive_service.files().delete(
-            fileId=file_id,
-            supportsAllDrives=True
-        ).execute()
-        st.success("✅ Drive 檔案刪除成功")
-        return True
+        # 方法 1：嘗試直接刪除（適用於一般 Drive）
+        try:
+            drive_service.files().delete(
+                fileId=file_id,
+                supportsAllDrives=True
+            ).execute()
+            st.success("✅ Drive 檔案刪除成功（方法1）")
+            return True
+        except Exception as e1:
+            st.warning(f"⚠️ 方法1失敗: {str(e1)[:100]}")
+        
+        # 方法 2：移到垃圾桶（適用於共用雲端硬碟）
+        try:
+            drive_service.files().update(
+                fileId=file_id,
+                body={'trashed': True},
+                supportsAllDrives=True
+            ).execute()
+            st.success("✅ Drive 檔案已移至垃圾桶（方法2）")
+            return True
+        except Exception as e2:
+            st.warning(f"⚠️ 方法2失敗: {str(e2)[:100]}")
+        
+        # 兩種方法都失敗
+        st.error("❌ 所有刪除方法都失敗，請手動刪除 Drive 檔案")
+        return False
+        
     except Exception as e:
         error_str = str(e)
-        st.error(f"❌ 刪除錯誤詳情: {error_str}")
-        # 如果是「檔案不存在」的錯誤，視為刪除成功（檔案可能已被手動刪除）
         if "File not found" in error_str:
             st.warning("⚠️ Drive 檔案不存在（可能已被刪除），將繼續刪除 Sheet 記錄")
             return True
