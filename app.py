@@ -271,6 +271,30 @@ def delete_document_from_sheet(worksheet, doc_id):
         st.error(f"從 Google Sheet 刪除失敗: {str(e)}")
         return False
 
+def check_needs_tracking(df, doc_id, doc_type, doc_date):
+    """檢查發文是否需要追蹤（超過7天且無對應收文）"""
+    # 只檢查「發文」類型
+    if doc_type != "發文":
+        return False
+    
+    try:
+        # 計算是否超過 7 天
+        doc_date_obj = datetime.strptime(doc_date, '%Y-%m-%d')
+        days_passed = (datetime.now() - doc_date_obj).days
+        
+        if days_passed <= 7:
+            return False
+        
+        # 檢查是否有對應的「收文」回覆（Parent_ID 指向此發文）
+        replies = df[df['Parent_ID'] == doc_id]
+        has_reply = any(replies['Type'] == '收文')
+        
+        # 超過 7 天且沒有收文回覆 → 需要追蹤
+        return not has_reply
+    
+    except Exception:
+        return False
+
 def display_pdf_from_bytes(pdf_bytes):
     """將 PDF bytes 轉為 base64 並顯示"""
     if not pdf_bytes:
@@ -459,8 +483,23 @@ def main():
         if df.empty:
             st.info("尚無公文資料")
         else:
+            # 加入追蹤狀態欄位
+            def get_status(row):
+                if check_needs_tracking(df, row['ID'], row['Type'], row['Date']):
+                    days = (datetime.now() - datetime.strptime(row['Date'], '%Y-%m-%d')).days
+                    return f"🔴 待追蹤({days}天)"
+                return "✅ 正常"
+            
+            df_display = df[['ID', 'Date', 'Type', 'Agency', 'Subject']].copy()
+            df_display['狀態'] = df.apply(get_status, axis=1)
+            
+            # 統計需追蹤數量
+            tracking_count = len(df_display[df_display['狀態'].str.contains('待追蹤')])
+            if tracking_count > 0:
+                st.warning(f"⚠️ 有 {tracking_count} 筆發文超過 7 天未收到回覆，請追蹤！")
+            
             st.dataframe(
-                df[['ID', 'Date', 'Type', 'Agency', 'Subject']],
+                df_display,
                 width="stretch",
                 hide_index=True
             )
@@ -481,22 +520,48 @@ def main():
             with left_col:
                 st.subheader("📋 公文清單")
                 
+                # 統計需追蹤數量
+                tracking_count = 0
+                
                 for idx, row in df.iterrows():
                     doc_id = row['ID']
                     subject = row['Subject']
                     agency = row['Agency']
                     doc_type = row['Type']
+                    doc_date = row['Date']
                     
-                    button_label = f"**{doc_id}**\n{agency} | {doc_type}\n{subject[:30]}..."
+                    # 檢查是否需要追蹤
+                    needs_tracking = check_needs_tracking(df, doc_id, doc_type, doc_date)
                     
-                    if st.button(
-                        button_label,
-                        key=f"select_{doc_id}",
-                        width="stretch"
-                    ):
-                        st.session_state.selected_doc_id = doc_id
+                    if needs_tracking:
+                        tracking_count += 1
+                        # 用紅色 HTML 標示需追蹤的公文
+                        days_passed = (datetime.now() - datetime.strptime(doc_date, '%Y-%m-%d')).days
+                        st.markdown(
+                            f"""<div style="background-color: #ffebee; border-left: 4px solid #f44336; padding: 10px; margin: 5px 0; border-radius: 4px;">
+                                <span style="color: #c62828; font-weight: bold;">🔴 {doc_id}</span><br>
+                                <span style="color: #c62828;">{agency} | {doc_type}</span><br>
+                                <span style="color: #c62828;">{subject[:30]}...</span><br>
+                                <span style="color: #c62828; font-size: 12px;">⚠️ 已超過 {days_passed} 天未收到回覆</span>
+                            </div>""",
+                            unsafe_allow_html=True
+                        )
+                        if st.button("選擇此公文", key=f"select_{doc_id}", width="stretch"):
+                            st.session_state.selected_doc_id = doc_id
+                    else:
+                        # 一般顯示
+                        button_label = f"**{doc_id}**\n{agency} | {doc_type}\n{subject[:30]}..."
+                        
+                        if st.button(
+                            button_label,
+                            key=f"select_{doc_id}",
+                            width="stretch"
+                        ):
+                            st.session_state.selected_doc_id = doc_id
                 
                 st.markdown("---")
+                if tracking_count > 0:
+                    st.warning(f"⚠️ 有 {tracking_count} 筆發文需要追蹤")
                 st.caption(f"共 {len(df)} 筆公文")
             
             # 右欄：預覽區
