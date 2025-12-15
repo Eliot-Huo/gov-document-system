@@ -247,13 +247,27 @@ def download_from_drive(drive_service, file_id):
 def delete_from_drive(drive_service, file_id):
     """從 Google Drive 刪除檔案（支援共用雲端硬碟）"""
     try:
+        # 先確認檔案存在（使用 supportsAllDrives）
+        try:
+            file_info = drive_service.files().get(
+                fileId=file_id,
+                supportsAllDrives=True,
+                fields='id, name'
+            ).execute()
+            st.info(f"📋 找到檔案: {file_info.get('name', 'unknown')}")
+        except Exception as check_error:
+            st.warning(f"⚠️ 無法確認檔案: {str(check_error)}")
+        
+        # 執行刪除
         drive_service.files().delete(
             fileId=file_id,
             supportsAllDrives=True
         ).execute()
+        st.success("✅ Drive 檔案刪除成功")
         return True
     except Exception as e:
         error_str = str(e)
+        st.error(f"❌ 刪除錯誤詳情: {error_str}")
         # 如果是「檔案不存在」的錯誤，視為刪除成功（檔案可能已被手動刪除）
         if "File not found" in error_str:
             st.warning("⚠️ Drive 檔案不存在（可能已被刪除），將繼續刪除 Sheet 記錄")
