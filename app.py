@@ -1,4 +1,14 @@
 import streamlit as st
+
+st.set_page_config(
+    page_title="Team Document System",
+    page_icon="📄",
+    layout="wide"
+)
+
+# 除錯：確認程式開始執行
+st.write("🔄 程式開始載入...")
+
 import gspread
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
@@ -8,16 +18,12 @@ import base64
 from datetime import datetime
 import pandas as pd
 
+st.write("✅ 所有模組載入成功")
+
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive'
 ]
-
-st.set_page_config(
-    page_title="Team Document System",
-    page_icon="📄",
-    layout="wide"
-)
 
 # ===== Google API 連線設定 =====
 @st.cache_resource
@@ -89,15 +95,20 @@ def init_google_services():
         st.stop()
 
 # ===== Google Sheets 操作 =====
-def get_sheet(gc, sheet_name):
-    """取得 Google Sheet"""
+def get_sheet(gc, sheet_name, sheet_id=None):
+    """取得 Google Sheet（優先使用 ID）"""
     try:
-        spreadsheet = gc.open(sheet_name)
+        if sheet_id:
+            # 優先用 ID 開啟（更可靠）
+            spreadsheet = gc.open_by_key(sheet_id)
+        else:
+            # 備用：用名稱開啟
+            spreadsheet = gc.open(sheet_name)
         worksheet = spreadsheet.sheet1
         return worksheet
     except Exception as e:
-        st.error(f"❌ 無法開啟 Google Sheet '{sheet_name}': {str(e)}")
-        st.info("請確認 Service Account 已被授權存取此 Sheet")
+        st.error(f"❌ 無法開啟 Google Sheet: {str(e)}")
+        st.info("請確認：\n1. Service Account 已被授權存取此 Sheet\n2. Sheet ID 或名稱正確")
         return None
 
 def init_sheet_headers(worksheet):
@@ -189,7 +200,7 @@ def add_document_to_sheet(worksheet, doc_data):
 
 # ===== Google Drive 操作 =====
 def upload_to_drive(drive_service, file_bytes, filename, folder_id):
-    """上傳檔案到 Google Drive"""
+    """上傳檔案到 Google Drive（支援共用雲端硬碟）"""
     try:
         file_metadata = {
             'name': filename,
@@ -202,10 +213,12 @@ def upload_to_drive(drive_service, file_bytes, filename, folder_id):
             resumable=True
         )
         
+        # 加入 supportsAllDrives=True 以支援共用雲端硬碟
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
-            fields='id'
+            fields='id',
+            supportsAllDrives=True
         ).execute()
         
         return file.get('id')
@@ -215,9 +228,13 @@ def upload_to_drive(drive_service, file_bytes, filename, folder_id):
         return None
 
 def download_from_drive(drive_service, file_id):
-    """從 Google Drive 下載檔案到記憶體"""
+    """從 Google Drive 下載檔案到記憶體（支援共用雲端硬碟）"""
     try:
-        request = drive_service.files().get_media(fileId=file_id)
+        # 加入 supportsAllDrives=True 以支援共用雲端硬碟
+        request = drive_service.files().get_media(
+            fileId=file_id,
+            supportsAllDrives=True
+        )
         file_bytes = io.BytesIO()
         downloader = MediaIoBaseDownload(file_bytes, request)
         
@@ -262,14 +279,21 @@ def main():
     with st.sidebar:
         st.header("⚙️ 系統設定")
         
-        # 從 secrets 或環境變數讀取預設值
+        # 從 secrets 讀取預設值
         default_sheet_name = st.secrets.get("SHEET_NAME", "政府公文資料庫") if "SHEET_NAME" in st.secrets else "政府公文資料庫"
+        default_sheet_id = st.secrets.get("SHEET_ID", "") if "SHEET_ID" in st.secrets else ""
         default_folder_id = st.secrets.get("DRIVE_FOLDER_ID", "") if "DRIVE_FOLDER_ID" in st.secrets else ""
         
         sheet_name = st.text_input(
             "Google Sheet 名稱",
             value=default_sheet_name,
             help="請輸入您的 Google Sheet 名稱"
+        )
+        
+        sheet_id = st.text_input(
+            "Google Sheet ID（建議使用）",
+            value=default_sheet_id,
+            help="從 Sheet 網址取得，比名稱更可靠"
         )
         
         folder_id = st.text_input(
@@ -282,31 +306,28 @@ def main():
             st.warning("⚠️ 請設定 Google Drive Folder ID")
             st.info("從 Drive 資料夾網址取得，例如：\nhttps://drive.google.com/drive/folders/[THIS_IS_FOLDER_ID]")
         
+        if not sheet_id:
+            st.info("💡 建議設定 Sheet ID 以獲得更穩定的連線")
+        
         # 顯示設定說明
-        with st.expander("💡 如何永久儲存設定？"):
+        with st.expander("💡 如何取得 ID？"):
             st.markdown("""
-            **方法 1：使用 Streamlit Secrets**
-            
-            建立檔案 `~/.streamlit/secrets.toml`，內容：
-            ```toml
-            SHEET_NAME = "政府公文資料庫"
-            DRIVE_FOLDER_ID = "您的Folder ID"
+            **Google Sheet ID：**
+            ```
+            https://docs.google.com/spreadsheets/d/[SHEET_ID]/edit
             ```
             
-            **方法 2：設定環境變數**
-            
-            在 `~/.bash_profile` 或 `~/.zshrc` 加入：
-            ```bash
-            export SHEET_NAME="政府公文資料庫"
-            export DRIVE_FOLDER_ID="您的Folder ID"
+            **Google Drive Folder ID：**
+            ```
+            https://drive.google.com/drive/folders/[FOLDER_ID]
             ```
             """)
     
     # 初始化 Google Services
     gc, drive_service, credentials = init_google_services()
     
-    # 取得 Google Sheet
-    worksheet = get_sheet(gc, sheet_name)
+    # 取得 Google Sheet（優先使用 ID）
+    worksheet = get_sheet(gc, sheet_name, sheet_id if sheet_id else None)
     if worksheet:
         init_sheet_headers(worksheet)
     else:
