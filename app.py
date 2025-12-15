@@ -247,29 +247,15 @@ def download_from_drive(drive_service, file_id):
 def delete_from_drive(drive_service, file_id):
     """從 Google Drive 刪除檔案（支援共用雲端硬碟）"""
     try:
-        # 先確認檔案存在
-        try:
-            file_info = drive_service.files().get(
-                fileId=file_id,
-                supportsAllDrives=True,
-                fields='id, name, driveId'
-            ).execute()
-            st.info(f"📋 找到檔案: {file_info.get('name', 'unknown')}")
-            drive_id = file_info.get('driveId')  # 取得共用雲端硬碟 ID
-        except Exception as check_error:
-            st.warning(f"⚠️ 無法確認檔案: {str(check_error)}")
-            drive_id = None
-        
         # 方法 1：嘗試直接刪除（適用於一般 Drive）
         try:
             drive_service.files().delete(
                 fileId=file_id,
                 supportsAllDrives=True
             ).execute()
-            st.success("✅ Drive 檔案刪除成功（方法1）")
             return True
-        except Exception as e1:
-            st.warning(f"⚠️ 方法1失敗: {str(e1)[:100]}")
+        except:
+            pass
         
         # 方法 2：移到垃圾桶（適用於共用雲端硬碟）
         try:
@@ -278,23 +264,18 @@ def delete_from_drive(drive_service, file_id):
                 body={'trashed': True},
                 supportsAllDrives=True
             ).execute()
-            st.success("✅ Drive 檔案已移至垃圾桶（方法2）")
             return True
-        except Exception as e2:
-            st.warning(f"⚠️ 方法2失敗: {str(e2)[:100]}")
+        except:
+            pass
         
         # 兩種方法都失敗
-        st.error("❌ 所有刪除方法都失敗，請手動刪除 Drive 檔案")
         return False
         
     except Exception as e:
         error_str = str(e)
         if "File not found" in error_str:
-            st.warning("⚠️ Drive 檔案不存在（可能已被刪除），將繼續刪除 Sheet 記錄")
-            return True
-        else:
-            st.error(f"從 Google Drive 刪除失敗: {error_str}")
-            return False
+            return True  # 檔案不存在視為成功
+        return False
 
 def delete_document_from_sheet(worksheet, doc_id):
     """從 Google Sheet 刪除公文資料"""
@@ -343,17 +324,35 @@ def display_pdf_from_bytes(pdf_bytes):
     
     try:
         base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+        
+        # 方法 1：使用 iframe 嵌入顯示
         pdf_display = f'''
             <iframe src="data:application/pdf;base64,{base64_pdf}" 
                     width="100%" 
-                    height="800px" 
+                    height="600px" 
                     type="application/pdf"
                     style="border: 2px solid #e5e7eb; border-radius: 8px;">
             </iframe>
         '''
         st.markdown(pdf_display, unsafe_allow_html=True)
+        
+        # 方法 2：提供下載按鈕（如果預覽失敗可以下載查看）
+        st.download_button(
+            label="📥 下載 PDF 檔案",
+            data=pdf_bytes,
+            file_name="document.pdf",
+            mime="application/pdf"
+        )
+        
     except Exception as e:
         st.error(f"PDF 顯示失敗: {str(e)}")
+        # 至少提供下載選項
+        st.download_button(
+            label="📥 下載 PDF 檔案",
+            data=pdf_bytes,
+            file_name="document.pdf",
+            mime="application/pdf"
+        )
 
 # ===== 主程式 =====
 def main():
@@ -453,9 +452,11 @@ def main():
         
         st.markdown("---")
         
-        # 檔案上傳
+        # 檔案上傳（使用 session_state 的 key 來控制清除）
         st.subheader("📎 上傳 PDF 附件")
-        uploaded_file = st.file_uploader("選擇 PDF 檔案", type=['pdf'])
+        if 'uploader_key' not in st.session_state:
+            st.session_state.uploader_key = 0
+        uploaded_file = st.file_uploader("選擇 PDF 檔案", type=['pdf'], key=f"pdf_uploader_{st.session_state.uploader_key}")
         
         st.markdown("---")
         
@@ -508,6 +509,8 @@ def main():
                         if add_document_to_sheet(worksheet, doc_data):
                             st.success(f"✅ 公文新增成功！流水號：{preview_id}")
                             st.balloons()
+                            # 清除上傳的檔案
+                            st.session_state.uploader_key += 1
                             st.rerun()
                         else:
                             st.error("❌ 寫入 Google Sheet 失敗")
@@ -640,29 +643,23 @@ def main():
                             if confirm_text == selected_id:
                                 drive_file_id = selected_row.get('Drive_File_ID')
                                 
-                                # 顯示除錯資訊
-                                st.info(f"📋 Drive File ID: `{drive_file_id}`")
-                                
                                 # 1. 刪除 Google Drive 檔案
                                 drive_deleted = True
                                 if drive_file_id:
-                                    st.info("🔄 正在刪除 Drive 檔案...")
                                     drive_deleted = delete_from_drive(drive_service, drive_file_id)
-                                    st.info(f"📋 Drive 刪除結果: {drive_deleted}")
-                                else:
-                                    st.warning("⚠️ 沒有 Drive File ID")
                                 
                                 # 2. 刪除 Google Sheet 資料
                                 if drive_deleted:
                                     sheet_deleted = delete_document_from_sheet(worksheet, selected_id)
                                     
                                     if sheet_deleted:
-                                        st.success(f"✅ 公文 {selected_id} 已刪除！請手動重新整理頁面。")
+                                        st.success(f"✅ 公文 {selected_id} 已刪除！")
                                         # 清除選擇狀態
                                         if 'selected_doc_id' in st.session_state:
                                             del st.session_state.selected_doc_id
-                                        # 暫時不自動重新整理，方便看訊息
-                                        # st.rerun()
+                                        st.rerun()
+                                else:
+                                    st.error("❌ 刪除 Drive 檔案失敗")
                             else:
                                 st.error("❌ 輸入的公文字號不正確，請重新輸入")
                     
