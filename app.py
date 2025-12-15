@@ -254,8 +254,8 @@ def delete_from_drive(drive_service, file_id):
         return True
     except Exception as e:
         error_str = str(e)
-        # 如果是「檔案不存在」的錯誤，視為刪除成功（可能已被手動刪除）
-        if "File not found" in error_str or "404" in error_str:
+        # 如果是「檔案不存在」的錯誤，視為刪除成功（檔案可能已被手動刪除）
+        if "File not found" in error_str:
             st.warning("⚠️ Drive 檔案不存在（可能已被刪除），將繼續刪除 Sheet 記錄")
             return True
         else:
