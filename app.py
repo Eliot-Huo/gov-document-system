@@ -604,30 +604,31 @@ def main():
                         
                         if st.button("🗑️ 確認刪除", type="secondary"):
                             if confirm_text == selected_id:
-                                with st.spinner("刪除中..."):
-                                    drive_file_id = selected_row.get('Drive_File_ID')
+                                drive_file_id = selected_row.get('Drive_File_ID')
+                                
+                                # 顯示除錯資訊
+                                st.info(f"📋 Drive File ID: `{drive_file_id}`")
+                                
+                                # 1. 刪除 Google Drive 檔案
+                                drive_deleted = True
+                                if drive_file_id:
+                                    st.info("🔄 正在刪除 Drive 檔案...")
+                                    drive_deleted = delete_from_drive(drive_service, drive_file_id)
+                                    st.info(f"📋 Drive 刪除結果: {drive_deleted}")
+                                else:
+                                    st.warning("⚠️ 沒有 Drive File ID")
+                                
+                                # 2. 刪除 Google Sheet 資料
+                                if drive_deleted:
+                                    sheet_deleted = delete_document_from_sheet(worksheet, selected_id)
                                     
-                                    # 顯示除錯資訊
-                                    st.info(f"📋 Drive File ID: `{drive_file_id}`")
-                                    
-                                    # 1. 刪除 Google Drive 檔案
-                                    drive_deleted = True
-                                    if drive_file_id:
-                                        st.info("🔄 正在刪除 Drive 檔案...")
-                                        drive_deleted = delete_from_drive(drive_service, drive_file_id)
-                                        st.info(f"📋 Drive 刪除結果: {drive_deleted}")
-                                    else:
-                                        st.warning("⚠️ 沒有 Drive File ID")
-                                    
-                                    # 2. 刪除 Google Sheet 資料
-                                    if drive_deleted:
-                                        sheet_deleted = delete_document_from_sheet(worksheet, selected_id)
-                                        
-                                        if sheet_deleted:
-                                            st.success(f"✅ 公文 {selected_id} 已刪除！")
-                                            # 清除選擇狀態
+                                    if sheet_deleted:
+                                        st.success(f"✅ 公文 {selected_id} 已刪除！請手動重新整理頁面。")
+                                        # 清除選擇狀態
+                                        if 'selected_doc_id' in st.session_state:
                                             del st.session_state.selected_doc_id
-                                            st.rerun()
+                                        # 暫時不自動重新整理，方便看訊息
+                                        # st.rerun()
                             else:
                                 st.error("❌ 輸入的公文字號不正確，請重新輸入")
                     
