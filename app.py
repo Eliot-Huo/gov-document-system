@@ -317,7 +317,7 @@ def check_needs_tracking(df, doc_id, doc_type, doc_date):
         return False
 
 def display_pdf_from_bytes(pdf_bytes):
-    """將 PDF bytes 轉為 base64 並顯示"""
+    """將 PDF bytes 顯示並提供下載"""
     if not pdf_bytes:
         st.warning("📋 無附件預覽")
         return
@@ -325,24 +325,25 @@ def display_pdf_from_bytes(pdf_bytes):
     try:
         base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
         
-        # 方法 1：使用 iframe 嵌入顯示
-        pdf_display = f'''
-            <iframe src="data:application/pdf;base64,{base64_pdf}" 
-                    width="100%" 
-                    height="600px" 
-                    type="application/pdf"
-                    style="border: 2px solid #e5e7eb; border-radius: 8px;">
-            </iframe>
-        '''
-        st.markdown(pdf_display, unsafe_allow_html=True)
-        
-        # 方法 2：提供下載按鈕（如果預覽失敗可以下載查看）
+        # 提供下載按鈕
         st.download_button(
-            label="📥 下載 PDF 檔案",
+            label="📥 下載 PDF 檔案查看",
             data=pdf_bytes,
             file_name="document.pdf",
             mime="application/pdf"
         )
+        
+        # 使用 object 標籤顯示 PDF（比 iframe 更相容）
+        pdf_display = f'''
+            <object data="data:application/pdf;base64,{base64_pdf}" 
+                    type="application/pdf" 
+                    width="100%" 
+                    height="600px"
+                    style="border: 2px solid #e5e7eb; border-radius: 8px;">
+                <p>您的瀏覽器無法顯示 PDF，請使用上方下載按鈕查看。</p>
+            </object>
+        '''
+        st.markdown(pdf_display, unsafe_allow_html=True)
         
     except Exception as e:
         st.error(f"PDF 顯示失敗: {str(e)}")
@@ -425,20 +426,24 @@ def main():
     with tab1:
         st.header("新增公文資料")
         
+        # 初始化表單重置 key
+        if 'form_key' not in st.session_state:
+            st.session_state.form_key = 0
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            date_input = st.date_input("📅 日期", datetime.now())
-            doc_type = st.selectbox("📋 公文類型", ["發文", "收文", "簽呈", "函"])
-            agency = st.text_input("🏢 機關單位", placeholder="例：人事處")
+            date_input = st.date_input("📅 日期", datetime.now(), key=f"date_{st.session_state.form_key}")
+            doc_type = st.selectbox("📋 公文類型", ["發文", "收文", "簽呈", "函"], key=f"type_{st.session_state.form_key}")
+            agency = st.text_input("🏢 機關單位", placeholder="例：人事處", key=f"agency_{st.session_state.form_key}")
         
         with col2:
-            subject = st.text_input("📝 主旨", placeholder="請輸入公文主旨")
+            subject = st.text_input("📝 主旨", placeholder="請輸入公文主旨", key=f"subject_{st.session_state.form_key}")
         
         st.markdown("---")
         
         # 回覆案件選項
-        is_reply = st.checkbox("↩️ 這是回覆案件")
+        is_reply = st.checkbox("↩️ 這是回覆案件", key=f"reply_{st.session_state.form_key}")
         parent_id = None
         
         if is_reply:
@@ -509,8 +514,9 @@ def main():
                         if add_document_to_sheet(worksheet, doc_data):
                             st.success(f"✅ 公文新增成功！流水號：{preview_id}")
                             st.balloons()
-                            # 清除上傳的檔案
+                            # 清除上傳的檔案和表單
                             st.session_state.uploader_key += 1
+                            st.session_state.form_key += 1
                             st.rerun()
                         else:
                             st.error("❌ 寫入 Google Sheet 失敗")
