@@ -881,7 +881,7 @@ def main():
                     display: flex;
                     align-items: center;">
             {logo_html}
-            <h1 style="color: white; margin: 0; font-size: 2.5rem;">📄 團隊版政府公文追蹤系統</h1>
+            <h1 style="color: white; margin: 0; font-size: 2.5rem;">團隊版政府公文追蹤系統</h1>
         </div>
         """,
         unsafe_allow_html=True
