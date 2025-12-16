@@ -3,7 +3,8 @@ import streamlit as st
 st.set_page_config(
     page_title="Team Document System",
     page_icon="📄",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="collapsed"  # 初始時收起側邊欄,加快載入
 )
 
 import gspread
@@ -119,7 +120,7 @@ def init_all_sheets(_spreadsheet):
                        'Drive_File_ID', 'Created_At', 'Created_By', 'Status']
         docs_sheet = _spreadsheet.add_worksheet(title='公文資料', rows=1000, cols=20)
         docs_sheet.append_row(doc_headers)
-        time.sleep(1)
+        time.sleep(0.5)  # 減少等待時間
     else:
         docs_sheet = _spreadsheet.worksheet('公文資料')
     
@@ -129,7 +130,7 @@ def init_all_sheets(_spreadsheet):
                            'Drive_File_ID', 'Created_At', 'Created_By', 'Deleted_At', 'Deleted_By']
         deleted_sheet = _spreadsheet.add_worksheet(title='刪除紀錄', rows=1000, cols=20)
         deleted_sheet.append_row(deleted_headers)
-        time.sleep(1)
+        time.sleep(0.5)  # 減少等待時間
     else:
         deleted_sheet = _spreadsheet.worksheet('刪除紀錄')
     
@@ -138,7 +139,7 @@ def init_all_sheets(_spreadsheet):
         user_headers = ['Username', 'Password', 'Display_Name', 'Role', 'Created_At']
         users_sheet = _spreadsheet.add_worksheet(title='使用者', rows=1000, cols=20)
         users_sheet.append_row(user_headers)
-        time.sleep(1)
+        time.sleep(0.5)  # 減少等待時間
         
         # 建立預設管理員帳號
         default_admin = [
@@ -677,16 +678,17 @@ def login_page(users_sheet):
         
         if st.button("登入", type="primary", width="stretch"):
             if username and password:
-                users_df = get_all_users(users_sheet)
-                user = check_login(users_df, username, password)
-                
-                if user:
-                    st.session_state.user = user
-                    st.session_state.logged_in = True
-                    st.success(f"✅ 歡迎，{user['display_name']}！")
-                    st.rerun()
-                else:
-                    st.error("❌ 帳號或密碼錯誤")
+                with st.spinner("🔄 驗證中..."):
+                    users_df = get_all_users(users_sheet)
+                    user = check_login(users_df, username, password)
+                    
+                    if user:
+                        st.session_state.user = user
+                        st.session_state.logged_in = True
+                        st.success(f"✅ 歡迎，{user['display_name']}！")
+                        st.rerun()
+                    else:
+                        st.error("❌ 帳號或密碼錯誤")
             else:
                 st.warning("⚠️ 請輸入帳號和密碼")
         
@@ -806,9 +808,6 @@ def main():
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
     
-    # 初始化 Google Services
-    gc, drive_service, credentials = init_google_services()
-    
     # 從 secrets 讀取設定
     sheet_id = st.secrets.get("SHEET_ID", "") if "SHEET_ID" in st.secrets else ""
     folder_id = st.secrets.get("DRIVE_FOLDER_ID", "") if "DRIVE_FOLDER_ID" in st.secrets else ""
@@ -816,6 +815,29 @@ def main():
     if not sheet_id:
         st.error("❌ 請在 Secrets 設定 SHEET_ID")
         st.stop()
+    
+    # ===== 未登入:只初始化必要的服務以顯示登入頁面 =====
+    if not st.session_state.logged_in:
+        # 只初始化最基本的服務
+        gc, drive_service, credentials = init_google_services()
+        spreadsheet = get_spreadsheet(gc, sheet_id)
+        if not spreadsheet:
+            st.stop()
+        
+        # 只初始化使用者工作表
+        existing_sheets = [ws.title for ws in spreadsheet.worksheets()]
+        if '使用者' not in existing_sheets:
+            # 如果沒有使用者表,才完整初始化
+            docs_sheet, deleted_sheet, users_sheet = init_all_sheets(spreadsheet)
+        else:
+            users_sheet = spreadsheet.worksheet('使用者')
+        
+        login_page(users_sheet)
+        return
+    
+    # ===== 已登入:初始化完整的服務 =====
+    # 初始化 Google Services
+    gc, drive_service, credentials = init_google_services()
     
     # 自動在主資料夾內建立「已刪除」子資料夾
     deleted_folder_id = None
@@ -832,11 +854,6 @@ def main():
         st.stop()
     
     docs_sheet, deleted_sheet, users_sheet = init_all_sheets(spreadsheet)
-    
-    # 登入檢查
-    if not st.session_state.logged_in:
-        login_page(users_sheet)
-        return
     
     # ===== 已登入的主介面 =====
     
