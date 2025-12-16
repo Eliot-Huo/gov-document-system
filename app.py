@@ -426,42 +426,42 @@ def add_watermark_to_pdf(pdf_bytes, watermark_text):
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         
         # 浮水印設定
-        font_size = 18
-        opacity = 0.15  # 淡淡的透明度
-        angle = 45  # 斜向角度
+        font_size = 16
+        color = (0.75, 0.75, 0.75)  # 淡灰色
         
         for page in doc:
             page_width = page.rect.width
             page_height = page.rect.height
             
-            # 計算浮水印間距（不要太密）
+            # 計算浮水印間距
             x_gap = 180
-            y_gap = 120
+            y_gap = 130
             
-            # 在頁面上斜向佈滿浮水印
-            y = 50
+            # 在頁面上佈滿浮水印（使用 insert_text，rotate 只能是 0, 90, 180, 270）
+            # 改用斜向排列的方式模擬斜向效果
+            y = 30
+            row = 0
             while y < page_height + 100:
-                x = -50
-                row_offset = (y // y_gap) % 2 * (x_gap // 2)  # 錯開排列
+                # 錯開排列
+                x_start = -50 if row % 2 == 0 else 40
+                x = x_start
+                
                 while x < page_width + 100:
-                    # 建立文字
-                    text_point = fitz.Point(x + row_offset, y)
-                    
-                    # 插入浮水印文字
-                    page.insert_text(
-                        text_point,
-                        watermark_text,
-                        fontsize=font_size,
-                        rotate=angle,
-                        color=(0.5, 0.5, 0.5),  # 灰色
-                        overlay=True
-                    )
+                    # 插入浮水印文字（水平）
+                    try:
+                        page.insert_text(
+                            fitz.Point(x, y),
+                            watermark_text,
+                            fontsize=font_size,
+                            color=color,
+                            overlay=True
+                        )
+                    except:
+                        pass
                     
                     x += x_gap
                 y += y_gap
-            
-            # 設定透明度（使用 set_opacity）
-            # 由於 PyMuPDF 的限制，我們用較淺的顏色來模擬透明
+                row += 1
         
         # 輸出為 bytes
         output = io.BytesIO()
@@ -471,7 +471,7 @@ def add_watermark_to_pdf(pdf_bytes, watermark_text):
         return output.read()
     
     except Exception as e:
-        st.warning(f"⚠️ 浮水印添加失敗: {str(e)}")
+        # 失敗時返回原始 PDF
         return pdf_bytes
 
 def add_watermark_to_image(img_bytes, watermark_text):
@@ -488,36 +488,37 @@ def add_watermark_to_image(img_bytes, watermark_text):
         
         # 嘗試使用系統字體
         try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
         except:
-            font = ImageFont.load_default()
+            try:
+                font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 32)
+            except:
+                font = ImageFont.load_default()
         
         # 浮水印設定
-        opacity = 40  # 0-255，40 是很淡的
-        x_gap = 300
-        y_gap = 200
+        opacity = 50  # 0-255
+        text_color = (128, 128, 128, opacity)
         
-        # 佈滿浮水印
-        y = 50
+        # 計算文字大小
+        bbox = draw.textbbox((0, 0), watermark_text, font=font)
+        text_width = bbox[2] - bbox[0]
+        text_height = bbox[3] - bbox[1]
+        
+        # 間距
+        x_gap = text_width + 100
+        y_gap = text_height + 80
+        
+        # 佈滿浮水印（錯開排列模擬斜向）
+        y = -50
         row = 0
         while y < img.height + 100:
-            x = -100 if row % 2 == 0 else 50
+            x_offset = (row * 60) % x_gap  # 每行錯開
+            x = -100 + x_offset
+            
             while x < img.width + 100:
-                # 建立旋轉的文字
-                txt_img = Image.new('RGBA', (400, 100), (255, 255, 255, 0))
-                txt_draw = ImageDraw.Draw(txt_img)
-                txt_draw.text((0, 0), watermark_text, font=font, fill=(128, 128, 128, opacity))
-                
-                # 旋轉
-                txt_img = txt_img.rotate(45, expand=True, resample=Image.BICUBIC)
-                
-                # 貼上
-                paste_x = int(x - txt_img.width // 2)
-                paste_y = int(y - txt_img.height // 2)
-                if paste_x > -txt_img.width and paste_y > -txt_img.height:
-                    txt_layer.paste(txt_img, (paste_x, paste_y), txt_img)
-                
+                draw.text((x, y), watermark_text, font=font, fill=text_color)
                 x += x_gap
+            
             y += y_gap
             row += 1
         
