@@ -108,11 +108,21 @@ def get_spreadsheet(gc, sheet_id):
 def get_or_create_worksheet(spreadsheet, name, headers):
     """取得或建立工作表"""
     try:
+        # 重新取得所有工作表資訊
+        spreadsheet.fetch_sheet_metadata()
         worksheet = spreadsheet.worksheet(name)
+        return worksheet
     except gspread.exceptions.WorksheetNotFound:
-        worksheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=20)
-        worksheet.append_row(headers)
-    return worksheet
+        try:
+            worksheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=20)
+            worksheet.append_row(headers)
+            return worksheet
+        except Exception as e:
+            # 如果是「已存在」的錯誤，重新嘗試取得
+            if "already exists" in str(e):
+                spreadsheet.fetch_sheet_metadata()
+                return spreadsheet.worksheet(name)
+            raise e
 
 def init_all_sheets(spreadsheet):
     """初始化所有需要的工作表"""
@@ -456,7 +466,7 @@ def login_page(users_sheet):
         username = st.text_input("👤 帳號", key="login_username")
         password = st.text_input("🔑 密碼", type="password", key="login_password")
         
-        if st.button("登入", type="primary", use_container_width=True):
+        if st.button("登入", type="primary", width="stretch"):
             if username and password:
                 users_df = get_all_users(users_sheet)
                 user = check_login(users_df, username, password)
@@ -496,7 +506,7 @@ def user_management_page(users_sheet):
             # 隱藏密碼欄位
             display_df = users_df[['Username', 'Display_Name', 'Role', 'Created_At']].copy()
             display_df.columns = ['帳號', '顯示名稱', '角色', '建立時間']
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
+            st.dataframe(display_df, width="stretch", hide_index=True)
             
             st.markdown("---")
             st.subheader("🗑️ 刪除使用者")
@@ -626,7 +636,7 @@ def main():
         st.markdown(f"### 👤 {st.session_state.user['display_name']}")
         st.caption(f"角色：{'管理員' if is_admin() else '一般使用者'}")
         
-        if st.button("🚪 登出", use_container_width=True):
+        if st.button("🚪 登出", width="stretch"):
             st.session_state.logged_in = False
             st.session_state.user = None
             st.rerun()
@@ -699,7 +709,7 @@ def main():
         
         st.markdown("---")
         
-        if st.button("✅ 確認新增", type="primary", use_container_width=True):
+        if st.button("✅ 確認新增", type="primary", width="stretch"):
             if not folder_id:
                 st.error("❌ 請先設定 Google Drive Folder ID")
             elif not subject or not agency:
@@ -760,7 +770,7 @@ def main():
             if tracking_count > 0:
                 st.warning(f"⚠️ 有 {tracking_count} 筆發文超過 7 天未收到回覆")
             
-            st.dataframe(df_display, use_container_width=True, hide_index=True)
+            st.dataframe(df_display, width="stretch", hide_index=True)
     
     # ===== 查詢預覽頁籤 =====
     with tabs[1]:
@@ -785,7 +795,7 @@ def main():
                     
                     button_label = f"**{doc_id}**\n{agency} | {doc_type}\n{subject[:20]}...\n👤 {created_by}"
                     
-                    if st.button(button_label, key=f"select_{doc_id}", use_container_width=True):
+                    if st.button(button_label, key=f"select_{doc_id}", width="stretch"):
                         st.session_state.selected_doc_id = doc_id
                 
                 st.markdown("---")
@@ -883,7 +893,7 @@ def main():
                 deleted_df = deleted_df[[c for c in display_cols if c in deleted_df.columns]]
                 deleted_df.columns = ['流水號', '日期', '類型', '機關', '主旨', '建立者', '刪除時間', '刪除者'][:len(deleted_df.columns)]
                 
-                st.dataframe(deleted_df, use_container_width=True, hide_index=True)
+                st.dataframe(deleted_df, width="stretch", hide_index=True)
         except Exception as e:
             st.error(f"讀取刪除紀錄失敗: {str(e)}")
     
