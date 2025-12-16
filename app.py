@@ -348,8 +348,8 @@ def display_pdf_from_bytes(pdf_bytes):
                 # 顯示每一頁
                 for page_num in range(min(len(doc), 10)):  # 最多顯示 10 頁
                     page = doc[page_num]
-                    # 轉成圖片
-                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))  # 1.5x 縮放
+                    # 轉成圖片（提高解析度 2x）
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
                     img_bytes = pix.tobytes("png")
                     
                     st.image(img_bytes, caption=f"第 {page_num + 1} 頁", use_container_width=True)
@@ -575,7 +575,7 @@ def main():
             st.info("尚無公文資料")
         else:
             # 左右分割佈局
-            left_col, right_col = st.columns([1, 1.5])
+            left_col, right_col = st.columns([1, 2])
             
             # 左欄：清單區
             with left_col:
@@ -625,9 +625,9 @@ def main():
                     st.warning(f"⚠️ 有 {tracking_count} 筆發文需要追蹤")
                 st.caption(f"共 {len(df)} 筆公文")
             
-            # 右欄：預覽區
+            # 右欄：公文資訊
             with right_col:
-                st.subheader("👁️ 文件預覽")
+                st.subheader("👁️ 文件資訊")
                 
                 if 'selected_doc_id' not in st.session_state:
                     st.info("👈 請從左側清單選擇公文進行預覽")
@@ -680,23 +680,25 @@ def main():
                                     st.error("❌ 刪除 Drive 檔案失敗")
                             else:
                                 st.error("❌ 輸入的公文字號不正確，請重新輸入")
-                    
-                    st.markdown("---")
-                    
-                    # 顯示 PDF
-                    st.markdown("### 📄 PDF 內容")
-                    
-                    drive_file_id = selected_row.get('Drive_File_ID')
-                    
-                    if drive_file_id:
-                        with st.spinner("載入 PDF 中..."):
-                            pdf_bytes = download_from_drive(drive_service, drive_file_id)
-                            if pdf_bytes:
-                                display_pdf_from_bytes(pdf_bytes)
-                            else:
-                                st.error("無法載入 PDF")
-                    else:
-                        st.warning("📋 此公文無附件")
+            
+            # PDF 預覽區（全寬顯示）
+            if 'selected_doc_id' in st.session_state:
+                st.markdown("---")
+                st.subheader("📄 PDF 預覽")
+                
+                selected_id = st.session_state.selected_doc_id
+                selected_row = df[df['ID'] == selected_id].iloc[0]
+                drive_file_id = selected_row.get('Drive_File_ID')
+                
+                if drive_file_id:
+                    with st.spinner("載入 PDF 中..."):
+                        pdf_bytes = download_from_drive(drive_service, drive_file_id)
+                        if pdf_bytes:
+                            display_pdf_from_bytes(pdf_bytes)
+                        else:
+                            st.error("無法載入 PDF")
+                else:
+                    st.warning("📋 此公文無附件")
     
     # 底部資訊
     st.markdown("---")
