@@ -417,7 +417,7 @@ def check_needs_tracking(df, doc_id, doc_type, doc_date):
         return False
 
 def add_watermark_to_pdf(pdf_bytes, watermark_text):
-    """為 PDF 添加浮水印"""
+    """為 PDF 添加浮水印（支援中文）"""
     if not PDF_PREVIEW_AVAILABLE:
         return pdf_bytes
     
@@ -437,27 +437,37 @@ def add_watermark_to_pdf(pdf_bytes, watermark_text):
             x_gap = 180
             y_gap = 130
             
-            # 在頁面上佈滿浮水印（使用 insert_text，rotate 只能是 0, 90, 180, 270）
-            # 改用斜向排列的方式模擬斜向效果
             y = 30
             row = 0
             while y < page_height + 100:
-                # 錯開排列
                 x_start = -50 if row % 2 == 0 else 40
                 x = x_start
                 
                 while x < page_width + 100:
-                    # 插入浮水印文字（水平）
                     try:
+                        # 使用 fontname="china-s" 支援簡體中文
+                        # 或使用 fontname="china-t" 支援繁體中文
                         page.insert_text(
                             fitz.Point(x, y),
                             watermark_text,
+                            fontname="china-t",  # 繁體中文字體
                             fontsize=font_size,
                             color=color,
                             overlay=True
                         )
                     except:
-                        pass
+                        # 備用：嘗試其他字體
+                        try:
+                            page.insert_text(
+                                fitz.Point(x, y),
+                                watermark_text,
+                                fontname="china-s",
+                                fontsize=font_size,
+                                color=color,
+                                overlay=True
+                            )
+                        except:
+                            pass
                     
                     x += x_gap
                 y += y_gap
@@ -471,13 +481,14 @@ def add_watermark_to_pdf(pdf_bytes, watermark_text):
         return output.read()
     
     except Exception as e:
-        # 失敗時返回原始 PDF
         return pdf_bytes
 
 def add_watermark_to_image(img_bytes, watermark_text):
-    """為圖片添加浮水印"""
+    """為圖片添加浮水印（支援中文）"""
     try:
         from PIL import Image, ImageDraw, ImageFont
+        import urllib.request
+        import os
         
         # 開啟圖片
         img = Image.open(io.BytesIO(img_bytes)).convert('RGBA')
@@ -486,33 +497,61 @@ def add_watermark_to_image(img_bytes, watermark_text):
         txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt_layer)
         
-        # 嘗試使用系統字體
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 32)
-        except:
+        # 嘗試取得中文字體
+        font = None
+        font_size = 32
+        
+        # 可能的中文字體路徑
+        chinese_font_paths = [
+            "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+            "/tmp/NotoSansTC-Regular.ttf",
+        ]
+        
+        for font_path in chinese_font_paths:
+            if os.path.exists(font_path):
+                try:
+                    font = ImageFont.truetype(font_path, font_size)
+                    break
+                except:
+                    continue
+        
+        # 如果沒有中文字體，嘗試下載
+        if font is None:
             try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", 32)
+                font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/TraditionalChinese/NotoSansTC-Regular.otf"
+                font_path = "/tmp/NotoSansTC-Regular.otf"
+                if not os.path.exists(font_path):
+                    urllib.request.urlretrieve(font_url, font_path)
+                font = ImageFont.truetype(font_path, font_size)
             except:
+                # 最後備用：使用預設字體
                 font = ImageFont.load_default()
         
         # 浮水印設定
-        opacity = 50  # 0-255
+        opacity = 50
         text_color = (128, 128, 128, opacity)
         
         # 計算文字大小
-        bbox = draw.textbbox((0, 0), watermark_text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+        try:
+            bbox = draw.textbbox((0, 0), watermark_text, font=font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+        except:
+            text_width = len(watermark_text) * font_size
+            text_height = font_size
         
         # 間距
-        x_gap = text_width + 100
-        y_gap = text_height + 80
+        x_gap = max(text_width + 80, 200)
+        y_gap = max(text_height + 60, 100)
         
-        # 佈滿浮水印（錯開排列模擬斜向）
+        # 佈滿浮水印
         y = -50
         row = 0
         while y < img.height + 100:
-            x_offset = (row * 60) % x_gap  # 每行錯開
+            x_offset = (row * 60) % x_gap
             x = -100 + x_offset
             
             while x < img.width + 100:
@@ -533,7 +572,6 @@ def add_watermark_to_image(img_bytes, watermark_text):
         return output.read()
     
     except Exception as e:
-        # 如果失敗，返回原圖
         return img_bytes
 
 def display_pdf_from_bytes(pdf_bytes, watermark_text=None):
