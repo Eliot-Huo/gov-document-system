@@ -15,6 +15,13 @@ import base64
 from datetime import datetime
 import pandas as pd
 
+# PDF 轉圖片（可選）
+try:
+    import fitz  # PyMuPDF
+    PDF_PREVIEW_AVAILABLE = True
+except ImportError:
+    PDF_PREVIEW_AVAILABLE = False
+
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive'
@@ -317,43 +324,48 @@ def check_needs_tracking(df, doc_id, doc_type, doc_date):
         return False
 
 def display_pdf_from_bytes(pdf_bytes):
-    """將 PDF bytes 顯示並提供下載"""
+    """將 PDF 顯示為圖片預覽並提供下載"""
     if not pdf_bytes:
         st.warning("📋 無附件預覽")
         return
     
     try:
-        base64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-        
         # 提供下載按鈕
-        st.download_button(
-            label="📥 下載 PDF 檔案查看",
-            data=pdf_bytes,
-            file_name="document.pdf",
-            mime="application/pdf"
-        )
-        
-        # 使用 object 標籤顯示 PDF（比 iframe 更相容）
-        pdf_display = f'''
-            <object data="data:application/pdf;base64,{base64_pdf}" 
-                    type="application/pdf" 
-                    width="100%" 
-                    height="600px"
-                    style="border: 2px solid #e5e7eb; border-radius: 8px;">
-                <p>您的瀏覽器無法顯示 PDF，請使用上方下載按鈕查看。</p>
-            </object>
-        '''
-        st.markdown(pdf_display, unsafe_allow_html=True)
-        
-    except Exception as e:
-        st.error(f"PDF 顯示失敗: {str(e)}")
-        # 至少提供下載選項
         st.download_button(
             label="📥 下載 PDF 檔案",
             data=pdf_bytes,
             file_name="document.pdf",
             mime="application/pdf"
         )
+        
+        # 使用 PyMuPDF 將 PDF 轉成圖片
+        if PDF_PREVIEW_AVAILABLE:
+            try:
+                doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                
+                st.markdown(f"**共 {len(doc)} 頁**")
+                
+                # 顯示每一頁
+                for page_num in range(min(len(doc), 10)):  # 最多顯示 10 頁
+                    page = doc[page_num]
+                    # 轉成圖片
+                    pix = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5))  # 1.5x 縮放
+                    img_bytes = pix.tobytes("png")
+                    
+                    st.image(img_bytes, caption=f"第 {page_num + 1} 頁", use_container_width=True)
+                
+                if len(doc) > 10:
+                    st.info(f"⚠️ 僅顯示前 10 頁，完整文件請下載查看")
+                
+                doc.close()
+            except Exception as e:
+                st.warning(f"PDF 預覽失敗: {str(e)}")
+                st.info("請使用上方下載按鈕查看 PDF")
+        else:
+            st.info("📄 PDF 預覽功能未啟用，請使用下載按鈕查看")
+        
+    except Exception as e:
+        st.error(f"處理 PDF 失敗: {str(e)}")
 
 # ===== 主程式 =====
 def main():
