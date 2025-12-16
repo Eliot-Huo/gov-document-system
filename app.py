@@ -416,16 +416,142 @@ def check_needs_tracking(df, doc_id, doc_type, doc_date):
     except:
         return False
 
-def display_pdf_from_bytes(pdf_bytes):
-    """顯示 PDF 預覽"""
+def add_watermark_to_pdf(pdf_bytes, watermark_text):
+    """為 PDF 添加浮水印"""
+    if not PDF_PREVIEW_AVAILABLE:
+        return pdf_bytes
+    
+    try:
+        # 開啟 PDF
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        
+        # 浮水印設定
+        font_size = 18
+        opacity = 0.15  # 淡淡的透明度
+        angle = 45  # 斜向角度
+        
+        for page in doc:
+            page_width = page.rect.width
+            page_height = page.rect.height
+            
+            # 計算浮水印間距（不要太密）
+            x_gap = 180
+            y_gap = 120
+            
+            # 在頁面上斜向佈滿浮水印
+            y = 50
+            while y < page_height + 100:
+                x = -50
+                row_offset = (y // y_gap) % 2 * (x_gap // 2)  # 錯開排列
+                while x < page_width + 100:
+                    # 建立文字
+                    text_point = fitz.Point(x + row_offset, y)
+                    
+                    # 插入浮水印文字
+                    page.insert_text(
+                        text_point,
+                        watermark_text,
+                        fontsize=font_size,
+                        rotate=angle,
+                        color=(0.5, 0.5, 0.5),  # 灰色
+                        overlay=True
+                    )
+                    
+                    x += x_gap
+                y += y_gap
+            
+            # 設定透明度（使用 set_opacity）
+            # 由於 PyMuPDF 的限制，我們用較淺的顏色來模擬透明
+        
+        # 輸出為 bytes
+        output = io.BytesIO()
+        doc.save(output)
+        doc.close()
+        output.seek(0)
+        return output.read()
+    
+    except Exception as e:
+        st.warning(f"⚠️ 浮水印添加失敗: {str(e)}")
+        return pdf_bytes
+
+def add_watermark_to_image(img_bytes, watermark_text):
+    """為圖片添加浮水印"""
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        
+        # 開啟圖片
+        img = Image.open(io.BytesIO(img_bytes)).convert('RGBA')
+        
+        # 建立透明圖層
+        txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(txt_layer)
+        
+        # 嘗試使用系統字體
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 36)
+        except:
+            font = ImageFont.load_default()
+        
+        # 浮水印設定
+        opacity = 40  # 0-255，40 是很淡的
+        x_gap = 300
+        y_gap = 200
+        
+        # 佈滿浮水印
+        y = 50
+        row = 0
+        while y < img.height + 100:
+            x = -100 if row % 2 == 0 else 50
+            while x < img.width + 100:
+                # 建立旋轉的文字
+                txt_img = Image.new('RGBA', (400, 100), (255, 255, 255, 0))
+                txt_draw = ImageDraw.Draw(txt_img)
+                txt_draw.text((0, 0), watermark_text, font=font, fill=(128, 128, 128, opacity))
+                
+                # 旋轉
+                txt_img = txt_img.rotate(45, expand=True, resample=Image.BICUBIC)
+                
+                # 貼上
+                paste_x = int(x - txt_img.width // 2)
+                paste_y = int(y - txt_img.height // 2)
+                if paste_x > -txt_img.width and paste_y > -txt_img.height:
+                    txt_layer.paste(txt_img, (paste_x, paste_y), txt_img)
+                
+                x += x_gap
+            y += y_gap
+            row += 1
+        
+        # 合併圖層
+        result = Image.alpha_composite(img, txt_layer)
+        result = result.convert('RGB')
+        
+        # 輸出
+        output = io.BytesIO()
+        result.save(output, format='PNG')
+        output.seek(0)
+        return output.read()
+    
+    except Exception as e:
+        # 如果失敗，返回原圖
+        return img_bytes
+
+def display_pdf_from_bytes(pdf_bytes, watermark_text=None):
+    """顯示 PDF 預覽（含浮水印）"""
     if not pdf_bytes:
         st.warning("📋 無附件預覽")
         return
     
     try:
+        # 如果有浮水印文字，添加浮水印到下載的 PDF
+        if watermark_text:
+            watermarked_pdf = add_watermark_to_pdf(pdf_bytes, watermark_text)
+            download_data = watermarked_pdf
+        else:
+            download_data = pdf_bytes
+        
         st.download_button(
             label="📥 下載 PDF 檔案",
-            data=pdf_bytes,
+            data=download_data,
             file_name="document.pdf",
             mime="application/pdf"
         )
@@ -439,6 +565,11 @@ def display_pdf_from_bytes(pdf_bytes):
                     page = doc[page_num]
                     pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
                     img_bytes = pix.tobytes("png")
+                    
+                    # 為預覽圖片添加浮水印
+                    if watermark_text:
+                        img_bytes = add_watermark_to_image(img_bytes, watermark_text)
+                    
                     st.image(img_bytes, caption=f"第 {page_num + 1} 頁", use_container_width=True)
                 
                 if len(doc) > 10:
@@ -869,7 +1000,9 @@ def main():
                         with st.spinner("載入中..."):
                             pdf_bytes = download_from_drive(drive_service, drive_file_id)
                             if pdf_bytes:
-                                display_pdf_from_bytes(pdf_bytes)
+                                # 使用使用者名稱作為浮水印
+                                watermark = st.session_state.user['display_name']
+                                display_pdf_from_bytes(pdf_bytes, watermark)
                             else:
                                 st.error("無法載入 PDF")
                     else:
