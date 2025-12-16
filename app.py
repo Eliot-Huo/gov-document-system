@@ -860,39 +860,32 @@ def main():
             st.success("✅ 資料夾已設定")
             st.caption("刪除的檔案會自動移到「已刪除公文」子資料夾")
     
-    # 主畫面 - Logo 和標題
-    col_logo, col_title = st.columns([1, 4])
+    # 主畫面 - Logo 和標題橫幅
+    try:
+        # 嘗試讀取 Logo 檔案
+        with open("logo.png", "rb") as f:
+            logo_bytes = f.read()
+        logo_base64 = base64.b64encode(logo_bytes).decode()
+        logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="height: 60px; margin-right: 20px; vertical-align: middle;">'
+    except:
+        # 如果找不到檔案,使用預設圖示
+        logo_html = '<span style="font-size: 48px; margin-right: 20px; vertical-align: middle;">🏢</span>'
     
-    with col_logo:
-        try:
-            # 嘗試讀取 Logo 檔案(需要將 logo.png 放在與 app.py 同一目錄)
-            with open("logo.png", "rb") as f:
-                logo_bytes = f.read()
-            # 使用 HTML 顯示 Logo 並加上深色背景
-            logo_base64 = base64.b64encode(logo_bytes).decode()
-            st.markdown(
-                f"""
-                <div style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); 
-                            padding: 15px; border-radius: 10px; text-align: center;">
-                    <img src="data:image/png;base64,{logo_base64}" width="180">
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        except:
-            # 如果找不到檔案,顯示預設圖示
-            st.markdown(
-                """
-                <div style="background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); 
-                            padding: 30px; border-radius: 10px; text-align: center; font-size: 48px;">
-                    🏢
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-    
-    with col_title:
-        st.title("📄 團隊版政府公文追蹤系統")
+    # 完整橫幅
+    st.markdown(
+        f"""
+        <div style="background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%); 
+                    padding: 20px 30px; 
+                    border-radius: 10px; 
+                    margin-bottom: 20px;
+                    display: flex;
+                    align-items: center;">
+            {logo_html}
+            <h1 style="color: white; margin: 0; font-size: 2.5rem;">📄 團隊版政府公文追蹤系統</h1>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     
     st.markdown("---")
     
