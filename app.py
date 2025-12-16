@@ -649,7 +649,7 @@ def display_pdf_from_bytes(pdf_bytes, watermark_text=None):
                     if watermark_text:
                         img_bytes = add_watermark_to_image(img_bytes, watermark_text)
                     
-                    st.image(img_bytes, caption=f"第 {page_num + 1} 頁", use_container_width=True)
+                    st.image(img_bytes, caption=f"第 {page_num + 1} 頁", width="stretch")
                 
                 if len(doc) > 10:
                     st.info("⚠️ 僅顯示前 10 頁，完整文件請下載查看")
