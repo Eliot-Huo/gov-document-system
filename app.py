@@ -14,8 +14,9 @@ import io
 import base64
 from datetime import datetime
 import pandas as pd
+import hashlib
 
-# PDF 轉圖片（可選）
+# PDF 轉圖片
 try:
     import fitz  # PyMuPDF
     PDF_PREVIEW_AVAILABLE = True
@@ -27,19 +28,44 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive'
 ]
 
+# ===== 密碼加密 =====
+def hash_password(password):
+    """將密碼進行 SHA256 加密"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# ===== 使用者驗證 =====
+def check_login(users_df, username, password):
+    """驗證使用者登入"""
+    if users_df.empty:
+        return None
+    
+    hashed = hash_password(password)
+    user = users_df[(users_df['Username'] == username) & (users_df['Password'] == hashed)]
+    
+    if not user.empty:
+        return {
+            'username': user.iloc[0]['Username'],
+            'display_name': user.iloc[0]['Display_Name'],
+            'role': user.iloc[0]['Role']
+        }
+    return None
+
+def is_admin():
+    """檢查目前登入的使用者是否為管理員"""
+    if 'user' not in st.session_state:
+        return False
+    return st.session_state.user.get('role') == 'admin'
+
 # ===== Google API 連線設定 =====
 @st.cache_resource
 def init_google_services():
     """初始化 Google Services (Sheets & Drive)"""
     try:
-        # 優先使用本地 credentials.json（支援多個路徑）
         import os
         
-        # 定義可能的憑證檔案位置
         possible_paths = [
-            'credentials.json',  # 當前目錄
-            os.path.expanduser('~/credentials.json'),  # 家目錄
-            '/Users/eliothuo/credentials.json',  # 您的完整路徑
+            'credentials.json',
+            os.path.expanduser('~/credentials.json'),
         ]
         
         credentials = None
@@ -49,7 +75,6 @@ def init_google_services():
                     path,
                     scopes=SCOPES
                 )
-                st.success(f"✅ 已從 {path} 載入憑證")
                 break
         
         if not credentials and 'gcp_service_account' in st.secrets:
@@ -58,114 +83,116 @@ def init_google_services():
                 credentials_dict,
                 scopes=SCOPES
             )
-            st.success("✅ 已從 Streamlit secrets 載入憑證")
         
         if not credentials:
-            raise FileNotFoundError("找不到 credentials.json 檔案")
+            raise FileNotFoundError("找不到憑證檔案")
         
-        # 初始化 Google Sheets 客戶端
         gc = gspread.authorize(credentials)
-        
-        # 初始化 Google Drive 客戶端
         drive_service = build('drive', 'v3', credentials=credentials)
         
         return gc, drive_service, credentials
     
-    except FileNotFoundError as e:
-        st.error(f"❌ 找不到憑證檔案: {str(e)}")
-        st.info("""
-        ### 📝 請完成以下步驟：
-        
-        1. **下載 Service Account 金鑰**
-           - 前往 Google Cloud Console
-           - 建立 Service Account 並下載 JSON 金鑰
-        
-        2. **放置檔案**
-           - 將下載的 JSON 檔案重新命名為 `credentials.json`
-           - 放在與 app.py 同一個資料夾中
-        
-        3. **重新執行程式**
-           - 儲存檔案後重新整理頁面
-        
-        目前程式執行位置：{}
-        """.format(os.getcwd()))
-        st.stop()
-    
     except Exception as e:
         st.error(f"❌ Google API 連線失敗: {str(e)}")
-        st.info("請確認 credentials.json 檔案存在，或已設定 Streamlit secrets")
         st.stop()
 
 # ===== Google Sheets 操作 =====
-def get_sheet(gc, sheet_name, sheet_id=None):
-    """取得 Google Sheet（優先使用 ID）"""
+def get_spreadsheet(gc, sheet_id):
+    """取得 Google Spreadsheet"""
     try:
-        if sheet_id:
-            # 優先用 ID 開啟（更可靠）
-            spreadsheet = gc.open_by_key(sheet_id)
-        else:
-            # 備用：用名稱開啟
-            spreadsheet = gc.open(sheet_name)
-        worksheet = spreadsheet.sheet1
-        return worksheet
+        return gc.open_by_key(sheet_id)
     except Exception as e:
         st.error(f"❌ 無法開啟 Google Sheet: {str(e)}")
-        st.info("請確認：\n1. Service Account 已被授權存取此 Sheet\n2. Sheet ID 或名稱正確")
         return None
 
-def init_sheet_headers(worksheet):
-    """初始化 Sheet 標題列（如果是空的）"""
+def get_or_create_worksheet(spreadsheet, name, headers):
+    """取得或建立工作表"""
     try:
-        values = worksheet.get_all_values()
-        if not values or len(values) == 0:
-            headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 'Drive_File_ID', 'Created_At']
-            worksheet.append_row(headers)
-            st.success("✅ 已初始化 Google Sheet 標題列")
-    except Exception as e:
-        st.error(f"初始化標題列失敗: {str(e)}")
+        worksheet = spreadsheet.worksheet(name)
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=20)
+        worksheet.append_row(headers)
+    return worksheet
+
+def init_all_sheets(spreadsheet):
+    """初始化所有需要的工作表"""
+    # 公文資料表
+    doc_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 
+                   'Drive_File_ID', 'Created_At', 'Created_By', 'Status']
+    docs_sheet = get_or_create_worksheet(spreadsheet, '公文資料', doc_headers)
+    
+    # 刪除紀錄表
+    deleted_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID',
+                       'Drive_File_ID', 'Created_At', 'Created_By', 'Deleted_At', 'Deleted_By']
+    deleted_sheet = get_or_create_worksheet(spreadsheet, '刪除紀錄', deleted_headers)
+    
+    # 使用者資料表
+    user_headers = ['Username', 'Password', 'Display_Name', 'Role', 'Created_At']
+    users_sheet = get_or_create_worksheet(spreadsheet, '使用者', user_headers)
+    
+    # 檢查是否有預設管理員
+    users_data = users_sheet.get_all_values()
+    if len(users_data) <= 1:  # 只有標題列
+        # 建立預設管理員帳號 admin / admin123
+        default_admin = [
+            'admin',
+            hash_password('admin123'),
+            '系統管理員',
+            'admin',
+            datetime.now().isoformat()
+        ]
+        users_sheet.append_row(default_admin)
+    
+    return docs_sheet, deleted_sheet, users_sheet
 
 def get_all_documents(worksheet):
-    """從 Google Sheet 讀取所有公文資料"""
+    """從工作表讀取所有公文資料"""
     try:
-        # 取得所有值
         values = worksheet.get_all_values()
-        
-        # 如果 Sheet 是空的或只有標題列
         if not values or len(values) <= 1:
-            return pd.DataFrame(columns=['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 'Drive_File_ID', 'Created_At'])
-        
-        # 第一列是標題，後面是資料
+            return pd.DataFrame(columns=['ID', 'Date', 'Type', 'Agency', 'Subject', 
+                                        'Parent_ID', 'Drive_File_ID', 'Created_At', 'Created_By', 'Status'])
         headers = values[0]
         data = values[1:]
         df = pd.DataFrame(data, columns=headers)
-        
+        # 只顯示未刪除的資料
+        if 'Status' in df.columns:
+            df = df[df['Status'] != 'deleted']
         return df
     except Exception as e:
         st.error(f"讀取資料失敗: {str(e)}")
-        return pd.DataFrame(columns=['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 'Drive_File_ID', 'Created_At'])
+        return pd.DataFrame()
+
+def get_all_users(worksheet):
+    """從工作表讀取所有使用者"""
+    try:
+        values = worksheet.get_all_values()
+        if not values or len(values) <= 1:
+            return pd.DataFrame(columns=['Username', 'Password', 'Display_Name', 'Role', 'Created_At'])
+        headers = values[0]
+        data = values[1:]
+        return pd.DataFrame(data, columns=headers)
+    except Exception as e:
+        st.error(f"讀取使用者失敗: {str(e)}")
+        return pd.DataFrame()
 
 def generate_document_id(worksheet, date_str, is_reply, parent_id):
     """生成流水號"""
     try:
         df = get_all_documents(worksheet)
         
-        # 確保 DataFrame 不是空的且有 ID 欄位
         if df.empty or 'ID' not in df.columns:
-            # 如果是空的，直接產生第一個 ID
             if not is_reply:
                 date_code = date_str.replace('-', '')
                 return f"{date_code}001"
             else:
-                st.error("無法產生回覆案號：沒有原始公文資料")
                 return None
         
         if is_reply and parent_id:
-            # 回覆案：計算回覆次數
             reply_count = len(df[df['Parent_ID'].astype(str) == str(parent_id)])
             new_reply_number = str(reply_count + 2).zfill(2)
             doc_id = f"{new_reply_number}{parent_id}"
         else:
-            # 新開案：YYYYMMDD + 流水號
             date_code = date_str.replace('-', '')
             same_day_docs = df[
                 (df['ID'].astype(str).str.startswith(date_code)) & 
@@ -176,13 +203,11 @@ def generate_document_id(worksheet, date_str, is_reply, parent_id):
         
         return doc_id
     except Exception as e:
-        st.error(f"生成流水號失敗: {str(e)}")
-        # 如果出錯，至少產生一個基本的 ID
         date_code = date_str.replace('-', '')
         return f"{date_code}001"
 
 def add_document_to_sheet(worksheet, doc_data):
-    """新增公文資料到 Google Sheet"""
+    """新增公文資料"""
     try:
         row = [
             doc_data['id'],
@@ -192,17 +217,107 @@ def add_document_to_sheet(worksheet, doc_data):
             doc_data['subject'],
             doc_data['parent_id'] or '',
             doc_data['drive_file_id'] or '',
-            doc_data['created_at']
+            doc_data['created_at'],
+            doc_data['created_by'],
+            'active'
         ]
         worksheet.append_row(row)
         return True
     except Exception as e:
-        st.error(f"寫入 Google Sheet 失敗: {str(e)}")
+        st.error(f"寫入失敗: {str(e)}")
+        return False
+
+def add_user_to_sheet(worksheet, user_data):
+    """新增使用者"""
+    try:
+        row = [
+            user_data['username'],
+            hash_password(user_data['password']),
+            user_data['display_name'],
+            user_data['role'],
+            datetime.now().isoformat()
+        ]
+        worksheet.append_row(row)
+        return True
+    except Exception as e:
+        st.error(f"新增使用者失敗: {str(e)}")
+        return False
+
+def delete_user_from_sheet(worksheet, username):
+    """刪除使用者"""
+    try:
+        cell = worksheet.find(username)
+        if cell:
+            worksheet.delete_rows(cell.row)
+            return True
+        return False
+    except Exception as e:
+        st.error(f"刪除使用者失敗: {str(e)}")
+        return False
+
+def soft_delete_document(docs_sheet, deleted_sheet, doc_id, deleted_by):
+    """軟刪除公文（移到刪除紀錄）"""
+    try:
+        # 找到該筆資料
+        cell = docs_sheet.find(doc_id)
+        if not cell:
+            return False
+        
+        # 取得該列資料
+        row_data = docs_sheet.row_values(cell.row)
+        
+        # 新增到刪除紀錄表
+        deleted_row = row_data[:9] + [datetime.now().isoformat(), deleted_by]
+        deleted_sheet.append_row(deleted_row)
+        
+        # 從公文資料表刪除該列
+        docs_sheet.delete_rows(cell.row)
+        
+        return True
+    except Exception as e:
+        st.error(f"刪除公文失敗: {str(e)}")
         return False
 
 # ===== Google Drive 操作 =====
+def get_or_create_subfolder(drive_service, parent_folder_id, folder_name):
+    """在指定資料夾內取得或建立子資料夾"""
+    try:
+        # 先搜尋是否已存在
+        query = f"name='{folder_name}' and '{parent_folder_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        results = drive_service.files().list(
+            q=query,
+            spaces='drive',
+            fields='files(id, name)',
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        
+        files = results.get('files', [])
+        
+        if files:
+            # 已存在，回傳 ID
+            return files[0]['id']
+        
+        # 不存在，建立新資料夾
+        folder_metadata = {
+            'name': folder_name,
+            'mimeType': 'application/vnd.google-apps.folder',
+            'parents': [parent_folder_id]
+        }
+        
+        folder = drive_service.files().create(
+            body=folder_metadata,
+            fields='id',
+            supportsAllDrives=True
+        ).execute()
+        
+        return folder.get('id')
+    except Exception as e:
+        st.error(f"建立資料夾失敗: {str(e)}")
+        return None
+
 def upload_to_drive(drive_service, file_bytes, filename, folder_id):
-    """上傳檔案到 Google Drive（支援共用雲端硬碟）"""
+    """上傳檔案到 Google Drive"""
     try:
         file_metadata = {
             'name': filename,
@@ -215,7 +330,6 @@ def upload_to_drive(drive_service, file_bytes, filename, folder_id):
             resumable=True
         )
         
-        # 加入 supportsAllDrives=True 以支援共用雲端硬碟
         file = drive_service.files().create(
             body=file_metadata,
             media_body=media,
@@ -224,15 +338,39 @@ def upload_to_drive(drive_service, file_bytes, filename, folder_id):
         ).execute()
         
         return file.get('id')
-    
     except Exception as e:
-        st.error(f"上傳到 Google Drive 失敗: {str(e)}")
+        st.error(f"上傳失敗: {str(e)}")
         return None
 
-def download_from_drive(drive_service, file_id):
-    """從 Google Drive 下載檔案到記憶體（支援共用雲端硬碟）"""
+def move_file_to_folder(drive_service, file_id, dest_folder_id):
+    """移動檔案到另一個資料夾"""
     try:
-        # 加入 supportsAllDrives=True 以支援共用雲端硬碟
+        # 取得檔案目前的父資料夾
+        file = drive_service.files().get(
+            fileId=file_id,
+            fields='parents',
+            supportsAllDrives=True
+        ).execute()
+        
+        previous_parents = ",".join(file.get('parents', []))
+        
+        # 移動到新資料夾
+        drive_service.files().update(
+            fileId=file_id,
+            addParents=dest_folder_id,
+            removeParents=previous_parents,
+            supportsAllDrives=True,
+            fields='id, parents'
+        ).execute()
+        
+        return True
+    except Exception as e:
+        st.error(f"移動檔案失敗: {str(e)}")
+        return False
+
+def download_from_drive(drive_service, file_id):
+    """從 Google Drive 下載檔案"""
+    try:
         request = drive_service.files().get_media(
             fileId=file_id,
             supportsAllDrives=True
@@ -246,91 +384,36 @@ def download_from_drive(drive_service, file_id):
         
         file_bytes.seek(0)
         return file_bytes.read()
-    
     except Exception as e:
-        st.error(f"從 Google Drive 下載失敗: {str(e)}")
+        st.error(f"下載失敗: {str(e)}")
         return None
 
-def delete_from_drive(drive_service, file_id):
-    """從 Google Drive 刪除檔案（支援共用雲端硬碟）"""
-    try:
-        # 方法 1：嘗試直接刪除（適用於一般 Drive）
-        try:
-            drive_service.files().delete(
-                fileId=file_id,
-                supportsAllDrives=True
-            ).execute()
-            return True
-        except:
-            pass
-        
-        # 方法 2：移到垃圾桶（適用於共用雲端硬碟）
-        try:
-            drive_service.files().update(
-                fileId=file_id,
-                body={'trashed': True},
-                supportsAllDrives=True
-            ).execute()
-            return True
-        except:
-            pass
-        
-        # 兩種方法都失敗
-        return False
-        
-    except Exception as e:
-        error_str = str(e)
-        if "File not found" in error_str:
-            return True  # 檔案不存在視為成功
-        return False
-
-def delete_document_from_sheet(worksheet, doc_id):
-    """從 Google Sheet 刪除公文資料"""
-    try:
-        # 找到該筆資料的列號
-        cell = worksheet.find(doc_id)
-        if cell:
-            worksheet.delete_rows(cell.row)
-            return True
-        else:
-            st.error(f"找不到公文 {doc_id}")
-            return False
-    except Exception as e:
-        st.error(f"從 Google Sheet 刪除失敗: {str(e)}")
-        return False
-
 def check_needs_tracking(df, doc_id, doc_type, doc_date):
-    """檢查發文是否需要追蹤（超過7天且無對應收文）"""
-    # 只檢查「發文」類型
+    """檢查發文是否需要追蹤"""
     if doc_type != "發文":
         return False
     
     try:
-        # 計算是否超過 7 天
         doc_date_obj = datetime.strptime(doc_date, '%Y-%m-%d')
         days_passed = (datetime.now() - doc_date_obj).days
         
         if days_passed <= 7:
             return False
         
-        # 檢查是否有對應的「收文」回覆（Parent_ID 指向此發文）
         replies = df[df['Parent_ID'] == doc_id]
         has_reply = any(replies['Type'] == '收文')
         
-        # 超過 7 天且沒有收文回覆 → 需要追蹤
         return not has_reply
-    
-    except Exception:
+    except:
         return False
 
 def display_pdf_from_bytes(pdf_bytes):
-    """將 PDF 顯示為圖片預覽並提供下載"""
+    """顯示 PDF 預覽"""
     if not pdf_bytes:
         st.warning("📋 無附件預覽")
         return
     
     try:
-        # 提供下載按鈕
         st.download_button(
             label="📥 下載 PDF 檔案",
             data=pdf_bytes,
@@ -338,107 +421,240 @@ def display_pdf_from_bytes(pdf_bytes):
             mime="application/pdf"
         )
         
-        # 使用 PyMuPDF 將 PDF 轉成圖片
         if PDF_PREVIEW_AVAILABLE:
             try:
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-                
                 st.markdown(f"**共 {len(doc)} 頁**")
                 
-                # 顯示每一頁
-                for page_num in range(min(len(doc), 10)):  # 最多顯示 10 頁
+                for page_num in range(min(len(doc), 10)):
                     page = doc[page_num]
-                    # 轉成圖片（提高解析度 2x）
                     pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0))
                     img_bytes = pix.tobytes("png")
-                    
                     st.image(img_bytes, caption=f"第 {page_num + 1} 頁", use_container_width=True)
                 
                 if len(doc) > 10:
-                    st.info(f"⚠️ 僅顯示前 10 頁，完整文件請下載查看")
-                
+                    st.info("⚠️ 僅顯示前 10 頁，完整文件請下載查看")
                 doc.close()
             except Exception as e:
                 st.warning(f"PDF 預覽失敗: {str(e)}")
-                st.info("請使用上方下載按鈕查看 PDF")
         else:
-            st.info("📄 PDF 預覽功能未啟用，請使用下載按鈕查看")
-        
+            st.info("📄 請使用下載按鈕查看 PDF")
     except Exception as e:
         st.error(f"處理 PDF 失敗: {str(e)}")
 
-# ===== 主程式 =====
-def main():
-    st.title("📄 團隊版政府公文追蹤系統")
-    st.markdown("**Google Drive + Google Sheets 整合版**")
+# ===== 登入頁面 =====
+def login_page(users_sheet):
+    """顯示登入頁面"""
+    st.title("🔐 系統登入")
     st.markdown("---")
     
-    # 側邊欄設定
-    with st.sidebar:
-        st.header("⚙️ 系統設定")
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.subheader("請輸入帳號密碼")
         
-        # 從 secrets 讀取預設值
-        default_sheet_name = st.secrets.get("SHEET_NAME", "政府公文資料庫") if "SHEET_NAME" in st.secrets else "政府公文資料庫"
-        default_sheet_id = st.secrets.get("SHEET_ID", "") if "SHEET_ID" in st.secrets else ""
-        default_folder_id = st.secrets.get("DRIVE_FOLDER_ID", "") if "DRIVE_FOLDER_ID" in st.secrets else ""
+        username = st.text_input("👤 帳號", key="login_username")
+        password = st.text_input("🔑 密碼", type="password", key="login_password")
         
-        sheet_name = st.text_input(
-            "Google Sheet 名稱",
-            value=default_sheet_name,
-            help="請輸入您的 Google Sheet 名稱"
-        )
+        if st.button("登入", type="primary", use_container_width=True):
+            if username and password:
+                users_df = get_all_users(users_sheet)
+                user = check_login(users_df, username, password)
+                
+                if user:
+                    st.session_state.user = user
+                    st.session_state.logged_in = True
+                    st.success(f"✅ 歡迎，{user['display_name']}！")
+                    st.rerun()
+                else:
+                    st.error("❌ 帳號或密碼錯誤")
+            else:
+                st.warning("⚠️ 請輸入帳號和密碼")
         
-        sheet_id = st.text_input(
-            "Google Sheet ID（建議使用）",
-            value=default_sheet_id,
-            help="從 Sheet 網址取得，比名稱更可靠"
-        )
+        st.markdown("---")
+        st.caption("預設管理員帳號：admin / admin123")
+        st.caption("⚠️ 請登入後立即修改預設密碼")
+
+# ===== 使用者管理頁面 =====
+def user_management_page(users_sheet):
+    """使用者管理頁面（僅管理員可用）"""
+    st.header("👥 使用者管理")
+    
+    if not is_admin():
+        st.error("❌ 您沒有權限存取此頁面")
+        return
+    
+    tab1, tab2, tab3 = st.tabs(["📋 使用者列表", "➕ 新增使用者", "🔑 修改密碼"])
+    
+    # 使用者列表
+    with tab1:
+        users_df = get_all_users(users_sheet)
         
-        folder_id = st.text_input(
-            "Google Drive Folder ID",
-            value=default_folder_id,
-            help="請輸入 Drive 資料夾的 ID（從網址取得）"
-        )
-        
-        if not folder_id:
-            st.warning("⚠️ 請設定 Google Drive Folder ID")
-            st.info("從 Drive 資料夾網址取得，例如：\nhttps://drive.google.com/drive/folders/[THIS_IS_FOLDER_ID]")
-        
-        if not sheet_id:
-            st.info("💡 建議設定 Sheet ID 以獲得更穩定的連線")
-        
-        # 顯示設定說明
-        with st.expander("💡 如何取得 ID？"):
-            st.markdown("""
-            **Google Sheet ID：**
-            ```
-            https://docs.google.com/spreadsheets/d/[SHEET_ID]/edit
-            ```
+        if users_df.empty:
+            st.info("尚無使用者資料")
+        else:
+            # 隱藏密碼欄位
+            display_df = users_df[['Username', 'Display_Name', 'Role', 'Created_At']].copy()
+            display_df.columns = ['帳號', '顯示名稱', '角色', '建立時間']
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
             
-            **Google Drive Folder ID：**
-            ```
-            https://drive.google.com/drive/folders/[FOLDER_ID]
-            ```
-            """)
+            st.markdown("---")
+            st.subheader("🗑️ 刪除使用者")
+            
+            # 不能刪除自己和最後一個管理員
+            deletable_users = users_df[users_df['Username'] != st.session_state.user['username']]
+            
+            if deletable_users.empty:
+                st.info("沒有可刪除的使用者")
+            else:
+                user_to_delete = st.selectbox(
+                    "選擇要刪除的使用者",
+                    deletable_users['Username'].tolist()
+                )
+                
+                if st.button("🗑️ 刪除使用者", type="secondary"):
+                    # 檢查是否為最後一個管理員
+                    admin_count = len(users_df[users_df['Role'] == 'admin'])
+                    user_role = users_df[users_df['Username'] == user_to_delete]['Role'].iloc[0]
+                    
+                    if user_role == 'admin' and admin_count <= 1:
+                        st.error("❌ 無法刪除最後一個管理員帳號")
+                    else:
+                        if delete_user_from_sheet(users_sheet, user_to_delete):
+                            st.success(f"✅ 已刪除使用者：{user_to_delete}")
+                            st.rerun()
+    
+    # 新增使用者
+    with tab2:
+        st.subheader("新增使用者")
+        
+        new_username = st.text_input("帳號", key="new_username")
+        new_password = st.text_input("密碼", type="password", key="new_password")
+        new_display_name = st.text_input("顯示名稱", key="new_display_name")
+        new_role = st.selectbox("角色", ["user", "admin"], key="new_role")
+        
+        if st.button("➕ 新增", type="primary"):
+            if new_username and new_password and new_display_name:
+                # 檢查帳號是否已存在
+                users_df = get_all_users(users_sheet)
+                if new_username in users_df['Username'].values:
+                    st.error("❌ 此帳號已存在")
+                else:
+                    user_data = {
+                        'username': new_username,
+                        'password': new_password,
+                        'display_name': new_display_name,
+                        'role': new_role
+                    }
+                    if add_user_to_sheet(users_sheet, user_data):
+                        st.success(f"✅ 已新增使用者：{new_username}")
+                        st.rerun()
+            else:
+                st.warning("⚠️ 請填寫所有欄位")
+    
+    # 修改密碼
+    with tab3:
+        st.subheader("修改使用者密碼")
+        
+        users_df = get_all_users(users_sheet)
+        user_to_change = st.selectbox(
+            "選擇使用者",
+            users_df['Username'].tolist(),
+            key="change_pwd_user"
+        )
+        
+        new_pwd = st.text_input("新密碼", type="password", key="new_pwd")
+        confirm_pwd = st.text_input("確認新密碼", type="password", key="confirm_pwd")
+        
+        if st.button("🔑 修改密碼"):
+            if new_pwd and confirm_pwd:
+                if new_pwd != confirm_pwd:
+                    st.error("❌ 兩次輸入的密碼不一致")
+                else:
+                    try:
+                        cell = users_sheet.find(user_to_change)
+                        if cell:
+                            users_sheet.update_cell(cell.row, 2, hash_password(new_pwd))
+                            st.success(f"✅ 已修改 {user_to_change} 的密碼")
+                    except Exception as e:
+                        st.error(f"修改失敗: {str(e)}")
+            else:
+                st.warning("⚠️ 請輸入新密碼")
+
+# ===== 主程式 =====
+def main():
+    # 初始化 session state
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
     
     # 初始化 Google Services
     gc, drive_service, credentials = init_google_services()
     
-    # 取得 Google Sheet（優先使用 ID）
-    worksheet = get_sheet(gc, sheet_name, sheet_id if sheet_id else None)
-    if worksheet:
-        init_sheet_headers(worksheet)
-    else:
+    # 從 secrets 讀取設定
+    sheet_id = st.secrets.get("SHEET_ID", "") if "SHEET_ID" in st.secrets else ""
+    folder_id = st.secrets.get("DRIVE_FOLDER_ID", "") if "DRIVE_FOLDER_ID" in st.secrets else ""
+    
+    if not sheet_id:
+        st.error("❌ 請在 Secrets 設定 SHEET_ID")
         st.stop()
     
-    # 頁籤
-    tab1, tab2 = st.tabs(["➕ 新增公文", "🔍 查詢預覽"])
+    # 自動在主資料夾內建立「已刪除」子資料夾
+    deleted_folder_id = None
+    if folder_id:
+        if 'deleted_folder_id' not in st.session_state:
+            deleted_folder_id = get_or_create_subfolder(drive_service, folder_id, "已刪除公文")
+            st.session_state.deleted_folder_id = deleted_folder_id
+        else:
+            deleted_folder_id = st.session_state.deleted_folder_id
+    
+    # 取得 Spreadsheet 並初始化所有工作表
+    spreadsheet = get_spreadsheet(gc, sheet_id)
+    if not spreadsheet:
+        st.stop()
+    
+    docs_sheet, deleted_sheet, users_sheet = init_all_sheets(spreadsheet)
+    
+    # 登入檢查
+    if not st.session_state.logged_in:
+        login_page(users_sheet)
+        return
+    
+    # ===== 已登入的主介面 =====
+    
+    # 側邊欄
+    with st.sidebar:
+        st.markdown(f"### 👤 {st.session_state.user['display_name']}")
+        st.caption(f"角色：{'管理員' if is_admin() else '一般使用者'}")
+        
+        if st.button("🚪 登出", use_container_width=True):
+            st.session_state.logged_in = False
+            st.session_state.user = None
+            st.rerun()
+        
+        st.markdown("---")
+        
+        st.header("⚙️ 系統設定")
+        
+        if not folder_id:
+            st.warning("⚠️ 請在 Secrets 設定 DRIVE_FOLDER_ID")
+        else:
+            st.success("✅ 資料夾已設定")
+            st.caption("刪除的檔案會自動移到「已刪除公文」子資料夾")
+    
+    # 主標題
+    st.title("📄 團隊版政府公文追蹤系統")
+    st.markdown("---")
+    
+    # 根據角色顯示不同頁籤
+    if is_admin():
+        tabs = st.tabs(["➕ 新增公文", "🔍 查詢預覽", "📊 刪除紀錄", "👥 使用者管理"])
+    else:
+        tabs = st.tabs(["➕ 新增公文", "🔍 查詢預覽", "📊 刪除紀錄"])
     
     # ===== 新增公文頁籤 =====
-    with tab1:
+    with tabs[0]:
         st.header("新增公文資料")
         
-        # 初始化表單重置 key
         if 'form_key' not in st.session_state:
             st.session_state.form_key = 0
         
@@ -454,64 +670,51 @@ def main():
         
         st.markdown("---")
         
-        # 回覆案件選項
         is_reply = st.checkbox("↩️ 這是回覆案件", key=f"reply_{st.session_state.form_key}")
         parent_id = None
         
         if is_reply:
-            df = get_all_documents(worksheet)
+            df = get_all_documents(docs_sheet)
             if not df.empty:
                 doc_options = [f"{row['ID']} - {row['Subject']}" for _, row in df.iterrows()]
-                selected = st.selectbox("選擇原始公文（Parent Document）", doc_options)
+                selected = st.selectbox("選擇原始公文", doc_options, key=f"parent_{st.session_state.form_key}")
                 parent_id = selected.split(" - ")[0] if selected else None
             else:
                 st.warning("目前沒有可回覆的公文")
         
         st.markdown("---")
         
-        # 檔案上傳（使用 session_state 的 key 來控制清除）
         st.subheader("📎 上傳 PDF 附件")
         if 'uploader_key' not in st.session_state:
             st.session_state.uploader_key = 0
-        uploaded_file = st.file_uploader("選擇 PDF 檔案", type=['pdf'], key=f"pdf_uploader_{st.session_state.uploader_key}")
+        uploaded_file = st.file_uploader("選擇 PDF 檔案", type=['pdf'], key=f"pdf_{st.session_state.uploader_key}")
         
         st.markdown("---")
         
-        # 預覽流水號
         date_str = date_input.strftime('%Y-%m-%d')
-        preview_id = generate_document_id(worksheet, date_str, is_reply, parent_id)
+        preview_id = generate_document_id(docs_sheet, date_str, is_reply, parent_id)
         
         if preview_id:
             st.info(f"### 🔢 預覽流水號: `{preview_id}`")
-            
-            if is_reply and parent_id:
-                df = get_all_documents(worksheet)
-                reply_count = len(df[df['Parent_ID'] == parent_id])
-                st.caption(f"回覆次數：第 {str(reply_count + 2).zfill(2)} 次")
         
         st.markdown("---")
         
-        # 提交按鈕
-        if st.button("✅ 確認新增", type="primary", width="stretch"):
+        if st.button("✅ 確認新增", type="primary", use_container_width=True):
             if not folder_id:
-                st.error("❌ 請先在側邊欄設定 Google Drive Folder ID")
+                st.error("❌ 請先設定 Google Drive Folder ID")
             elif not subject or not agency:
-                st.error("❌ 請填寫完整資料（主旨、機關）")
+                st.error("❌ 請填寫完整資料")
             elif is_reply and not parent_id:
                 st.error("❌ 請選擇原始公文")
             elif not uploaded_file:
                 st.error("❌ 請上傳 PDF 檔案")
             else:
                 with st.spinner("上傳中..."):
-                    # 讀取檔案
                     file_bytes = uploaded_file.read()
-                    
-                    # 上傳到 Google Drive
                     filename = f"{preview_id}_{agency}_{subject}.pdf"
                     file_id = upload_to_drive(drive_service, file_bytes, filename, folder_id)
                     
                     if file_id:
-                        # 寫入 Google Sheet
                         doc_data = {
                             'id': preview_id,
                             'date': date_str,
@@ -520,194 +723,183 @@ def main():
                             'subject': subject,
                             'parent_id': parent_id,
                             'drive_file_id': file_id,
-                            'created_at': datetime.now().isoformat()
+                            'created_at': datetime.now().isoformat(),
+                            'created_by': st.session_state.user['display_name']
                         }
                         
-                        if add_document_to_sheet(worksheet, doc_data):
+                        if add_document_to_sheet(docs_sheet, doc_data):
                             st.success(f"✅ 公文新增成功！流水號：{preview_id}")
                             st.balloons()
-                            # 清除上傳的檔案和表單
                             st.session_state.uploader_key += 1
                             st.session_state.form_key += 1
                             st.rerun()
-                        else:
-                            st.error("❌ 寫入 Google Sheet 失敗")
                     else:
-                        st.error("❌ 上傳到 Google Drive 失敗")
+                        st.error("❌ 上傳失敗")
         
         st.markdown("---")
         
-        # 顯示公文列表
+        # 公文列表
         st.header("📚 公文列表")
-        df = get_all_documents(worksheet)
+        df = get_all_documents(docs_sheet)
         
         if df.empty:
             st.info("尚無公文資料")
         else:
-            # 加入追蹤狀態欄位
             def get_status(row):
                 if check_needs_tracking(df, row['ID'], row['Type'], row['Date']):
                     days = (datetime.now() - datetime.strptime(row['Date'], '%Y-%m-%d')).days
                     return f"🔴 待追蹤({days}天)"
                 return "✅ 正常"
             
-            df_display = df[['ID', 'Date', 'Type', 'Agency', 'Subject']].copy()
+            display_cols = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Created_By']
+            df_display = df[display_cols].copy()
             df_display['狀態'] = df.apply(get_status, axis=1)
+            df_display.columns = ['流水號', '日期', '類型', '機關', '主旨', '建立者', '狀態']
             
-            # 統計需追蹤數量
             tracking_count = len(df_display[df_display['狀態'].str.contains('待追蹤')])
             if tracking_count > 0:
-                st.warning(f"⚠️ 有 {tracking_count} 筆發文超過 7 天未收到回覆，請追蹤！")
+                st.warning(f"⚠️ 有 {tracking_count} 筆發文超過 7 天未收到回覆")
             
-            st.dataframe(
-                df_display,
-                width="stretch",
-                hide_index=True
-            )
+            st.dataframe(df_display, use_container_width=True, hide_index=True)
     
     # ===== 查詢預覽頁籤 =====
-    with tab2:
+    with tabs[1]:
         st.header("查詢與預覽")
         
-        df = get_all_documents(worksheet)
+        df = get_all_documents(docs_sheet)
         
         if df.empty:
             st.info("尚無公文資料")
         else:
-            # 左右分割佈局
             left_col, right_col = st.columns([1, 2])
             
-            # 左欄：清單區
             with left_col:
                 st.subheader("📋 公文清單")
-                
-                # 統計需追蹤數量
-                tracking_count = 0
                 
                 for idx, row in df.iterrows():
                     doc_id = row['ID']
                     subject = row['Subject']
                     agency = row['Agency']
                     doc_type = row['Type']
-                    doc_date = row['Date']
+                    created_by = row.get('Created_By', '未知')
                     
-                    # 檢查是否需要追蹤
-                    needs_tracking = check_needs_tracking(df, doc_id, doc_type, doc_date)
+                    button_label = f"**{doc_id}**\n{agency} | {doc_type}\n{subject[:20]}...\n👤 {created_by}"
                     
-                    if needs_tracking:
-                        tracking_count += 1
-                        # 用紅色 HTML 標示需追蹤的公文
-                        days_passed = (datetime.now() - datetime.strptime(doc_date, '%Y-%m-%d')).days
-                        st.markdown(
-                            f"""<div style="background-color: #ffebee; border-left: 4px solid #f44336; padding: 10px; margin: 5px 0; border-radius: 4px;">
-                                <span style="color: #c62828; font-weight: bold;">🔴 {doc_id}</span><br>
-                                <span style="color: #c62828;">{agency} | {doc_type}</span><br>
-                                <span style="color: #c62828;">{subject[:30]}...</span><br>
-                                <span style="color: #c62828; font-size: 12px;">⚠️ 已超過 {days_passed} 天未收到回覆</span>
-                            </div>""",
-                            unsafe_allow_html=True
-                        )
-                        if st.button("選擇此公文", key=f"select_{doc_id}", width="stretch"):
-                            st.session_state.selected_doc_id = doc_id
-                    else:
-                        # 一般顯示
-                        button_label = f"**{doc_id}**\n{agency} | {doc_type}\n{subject[:30]}..."
-                        
-                        if st.button(
-                            button_label,
-                            key=f"select_{doc_id}",
-                            width="stretch"
-                        ):
-                            st.session_state.selected_doc_id = doc_id
+                    if st.button(button_label, key=f"select_{doc_id}", use_container_width=True):
+                        st.session_state.selected_doc_id = doc_id
                 
                 st.markdown("---")
-                if tracking_count > 0:
-                    st.warning(f"⚠️ 有 {tracking_count} 筆發文需要追蹤")
                 st.caption(f"共 {len(df)} 筆公文")
             
-            # 右欄：公文資訊
             with right_col:
                 st.subheader("👁️ 文件資訊")
                 
                 if 'selected_doc_id' not in st.session_state:
-                    st.info("👈 請從左側清單選擇公文進行預覽")
+                    st.info("👈 請從左側選擇公文")
                 else:
                     selected_id = st.session_state.selected_doc_id
-                    selected_row = df[df['ID'] == selected_id].iloc[0]
+                    selected_row = df[df['ID'] == selected_id]
                     
-                    # 顯示公文資訊
-                    st.markdown(f"**公文字號：** `{selected_row['ID']}`")
-                    st.markdown(f"**機關單位：** {selected_row['Agency']}")
-                    st.markdown(f"**類型：** {selected_row['Type']}")
-                    st.markdown(f"**主旨：** {selected_row['Subject']}")
-                    st.markdown(f"**日期：** {selected_row['Date']}")
-                    
-                    if selected_row.get('Parent_ID'):
-                        st.markdown(f"**回覆：** `{selected_row['Parent_ID']}`")
-                    
-                    st.markdown("---")
-                    
-                    # 刪除按鈕區
-                    with st.expander("⚠️ 危險操作"):
-                        st.warning("刪除後無法復原！")
+                    if selected_row.empty:
+                        st.warning("找不到此公文")
+                        del st.session_state.selected_doc_id
+                    else:
+                        selected_row = selected_row.iloc[0]
                         
-                        # 使用確認機制
-                        confirm_text = st.text_input(
-                            f"請輸入公文字號 `{selected_id}` 以確認刪除：",
-                            key="delete_confirm"
-                        )
+                        st.markdown(f"**公文字號：** `{selected_row['ID']}`")
+                        st.markdown(f"**機關單位：** {selected_row['Agency']}")
+                        st.markdown(f"**類型：** {selected_row['Type']}")
+                        st.markdown(f"**主旨：** {selected_row['Subject']}")
+                        st.markdown(f"**日期：** {selected_row['Date']}")
+                        st.markdown(f"**建立者：** {selected_row.get('Created_By', '未知')}")
                         
-                        if st.button("🗑️ 確認刪除", type="secondary"):
-                            if confirm_text == selected_id:
-                                drive_file_id = selected_row.get('Drive_File_ID')
-                                
-                                # 1. 刪除 Google Drive 檔案
-                                drive_deleted = True
-                                if drive_file_id:
-                                    drive_deleted = delete_from_drive(drive_service, drive_file_id)
-                                
-                                # 2. 刪除 Google Sheet 資料
-                                if drive_deleted:
-                                    sheet_deleted = delete_document_from_sheet(worksheet, selected_id)
+                        if selected_row.get('Parent_ID'):
+                            st.markdown(f"**回覆：** `{selected_row['Parent_ID']}`")
+                        
+                        st.markdown("---")
+                        
+                        # 刪除功能
+                        with st.expander("⚠️ 刪除公文"):
+                            st.warning("刪除後將移至刪除紀錄，無法從前台復原！")
+                            
+                            confirm_text = st.text_input(
+                                f"請輸入公文字號 `{selected_id}` 以確認：",
+                                key="delete_confirm"
+                            )
+                            
+                            if st.button("🗑️ 確認刪除", type="secondary"):
+                                if confirm_text == selected_id:
+                                    drive_file_id = selected_row.get('Drive_File_ID')
                                     
-                                    if sheet_deleted:
-                                        st.success(f"✅ 公文 {selected_id} 已刪除！")
-                                        # 清除選擇狀態
-                                        if 'selected_doc_id' in st.session_state:
-                                            del st.session_state.selected_doc_id
+                                    # 移動 PDF 到刪除資料夾
+                                    if drive_file_id and deleted_folder_id:
+                                        move_file_to_folder(drive_service, drive_file_id, deleted_folder_id)
+                                    
+                                    # 軟刪除（移到刪除紀錄）
+                                    if soft_delete_document(docs_sheet, deleted_sheet, selected_id, 
+                                                           st.session_state.user['display_name']):
+                                        st.success(f"✅ 公文 {selected_id} 已刪除")
+                                        del st.session_state.selected_doc_id
                                         st.rerun()
                                 else:
-                                    st.error("❌ 刪除 Drive 檔案失敗")
-                            else:
-                                st.error("❌ 輸入的公文字號不正確，請重新輸入")
+                                    st.error("❌ 輸入的公文字號不正確")
             
-            # PDF 預覽區（全寬顯示）
+            # PDF 預覽（全寬）
             if 'selected_doc_id' in st.session_state:
-                st.markdown("---")
-                st.subheader("📄 PDF 預覽")
-                
                 selected_id = st.session_state.selected_doc_id
-                selected_row = df[df['ID'] == selected_id].iloc[0]
-                drive_file_id = selected_row.get('Drive_File_ID')
+                selected_row = df[df['ID'] == selected_id]
                 
-                if drive_file_id:
-                    with st.spinner("載入 PDF 中..."):
-                        pdf_bytes = download_from_drive(drive_service, drive_file_id)
-                        if pdf_bytes:
-                            display_pdf_from_bytes(pdf_bytes)
-                        else:
-                            st.error("無法載入 PDF")
-                else:
-                    st.warning("📋 此公文無附件")
+                if not selected_row.empty:
+                    selected_row = selected_row.iloc[0]
+                    drive_file_id = selected_row.get('Drive_File_ID')
+                    
+                    st.markdown("---")
+                    st.subheader("📄 PDF 預覽")
+                    
+                    if drive_file_id:
+                        with st.spinner("載入中..."):
+                            pdf_bytes = download_from_drive(drive_service, drive_file_id)
+                            if pdf_bytes:
+                                display_pdf_from_bytes(pdf_bytes)
+                            else:
+                                st.error("無法載入 PDF")
+                    else:
+                        st.warning("📋 此公文無附件")
+    
+    # ===== 刪除紀錄頁籤 =====
+    with tabs[2]:
+        st.header("📊 刪除紀錄")
+        
+        try:
+            deleted_values = deleted_sheet.get_all_values()
+            if len(deleted_values) <= 1:
+                st.info("尚無刪除紀錄")
+            else:
+                headers = deleted_values[0]
+                data = deleted_values[1:]
+                deleted_df = pd.DataFrame(data, columns=headers)
+                
+                display_cols = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Created_By', 'Deleted_At', 'Deleted_By']
+                deleted_df = deleted_df[[c for c in display_cols if c in deleted_df.columns]]
+                deleted_df.columns = ['流水號', '日期', '類型', '機關', '主旨', '建立者', '刪除時間', '刪除者'][:len(deleted_df.columns)]
+                
+                st.dataframe(deleted_df, use_container_width=True, hide_index=True)
+        except Exception as e:
+            st.error(f"讀取刪除紀錄失敗: {str(e)}")
+    
+    # ===== 使用者管理頁籤（僅管理員）=====
+    if is_admin():
+        with tabs[3]:
+            user_management_page(users_sheet)
     
     # 底部資訊
     st.markdown("---")
     st.info("""
     ### 📌 系統說明
-    - **資料儲存：** Google Sheets（Metadata）+ Google Drive（PDF 檔案）
-    - **編碼規則：** 新開案 YYYYMMDD+001，回覆案 回覆次數(2碼)+原始案號
-    - **安全性：** 使用 Service Account 驗證，檔案私密存取
-    - **團隊協作：** 多人可同時使用，資料即時同步
+    - **登入系統：** 需要帳號密碼才能使用
+    - **權限管理：** 管理員可新增/刪除使用者
+    - **刪除紀錄：** 刪除的公文會保留在紀錄中
+    - **追蹤提醒：** 發文超過 7 天未收到回覆會標示紅色
     """)
 
 if __name__ == "__main__":
