@@ -105,84 +105,52 @@ def get_spreadsheet(gc, sheet_id):
         st.error(f"❌ 無法開啟 Google Sheet: {str(e)}")
         return None
 
-def get_or_create_worksheet(spreadsheet, name, headers):
-    """取得或建立工作表（含重試機制）"""
-    import time
-    max_retries = 3
-    
-    for attempt in range(max_retries):
-        try:
-            # 嘗試取得工作表
-            worksheet = spreadsheet.worksheet(name)
-            return worksheet
-        except gspread.exceptions.WorksheetNotFound:
-            try:
-                worksheet = spreadsheet.add_worksheet(title=name, rows=1000, cols=20)
-                worksheet.append_row(headers)
-                return worksheet
-            except Exception as e:
-                if "already exists" in str(e):
-                    time.sleep(1)
-                    continue
-                raise e
-        except gspread.exceptions.APIError as e:
-            if "429" in str(e) or "Quota" in str(e):
-                # 速率限制，等待後重試
-                wait_time = (attempt + 1) * 10
-                st.warning(f"⏳ API 請求過於頻繁，等待 {wait_time} 秒後重試...")
-                time.sleep(wait_time)
-                continue
-            raise e
-    
-    st.error(f"❌ 無法取得工作表：{name}，請稍後再試")
-    return None
-
-def init_all_sheets(spreadsheet):
-    """初始化所有需要的工作表"""
+@st.cache_resource(ttl=300)
+def init_all_sheets(_spreadsheet):
+    """初始化所有需要的工作表（使用快取）"""
     import time
     
-    # 加入延遲避免 API 請求過快
-    time.sleep(1)
+    # 取得所有現有工作表
+    existing_sheets = [ws.title for ws in _spreadsheet.worksheets()]
     
     # 公文資料表
-    doc_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 
-                   'Drive_File_ID', 'Created_At', 'Created_By', 'Status']
-    docs_sheet = get_or_create_worksheet(spreadsheet, '公文資料', doc_headers)
-    
-    time.sleep(1)
+    if '公文資料' not in existing_sheets:
+        doc_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 
+                       'Drive_File_ID', 'Created_At', 'Created_By', 'Status']
+        docs_sheet = _spreadsheet.add_worksheet(title='公文資料', rows=1000, cols=20)
+        docs_sheet.append_row(doc_headers)
+        time.sleep(1)
+    else:
+        docs_sheet = _spreadsheet.worksheet('公文資料')
     
     # 刪除紀錄表
-    deleted_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID',
-                       'Drive_File_ID', 'Created_At', 'Created_By', 'Deleted_At', 'Deleted_By']
-    deleted_sheet = get_or_create_worksheet(spreadsheet, '刪除紀錄', deleted_headers)
-    
-    time.sleep(1)
+    if '刪除紀錄' not in existing_sheets:
+        deleted_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID',
+                           'Drive_File_ID', 'Created_At', 'Created_By', 'Deleted_At', 'Deleted_By']
+        deleted_sheet = _spreadsheet.add_worksheet(title='刪除紀錄', rows=1000, cols=20)
+        deleted_sheet.append_row(deleted_headers)
+        time.sleep(1)
+    else:
+        deleted_sheet = _spreadsheet.worksheet('刪除紀錄')
     
     # 使用者資料表
-    user_headers = ['Username', 'Password', 'Display_Name', 'Role', 'Created_At']
-    users_sheet = get_or_create_worksheet(spreadsheet, '使用者', user_headers)
-    
-    # 檢查是否有任何工作表建立失敗
-    if not docs_sheet or not deleted_sheet or not users_sheet:
-        st.error("❌ 無法初始化工作表，請稍後再試")
-        st.stop()
-    
-    # 檢查是否有預設管理員
-    try:
+    if '使用者' not in existing_sheets:
+        user_headers = ['Username', 'Password', 'Display_Name', 'Role', 'Created_At']
+        users_sheet = _spreadsheet.add_worksheet(title='使用者', rows=1000, cols=20)
+        users_sheet.append_row(user_headers)
         time.sleep(1)
-        users_data = users_sheet.get_all_values()
-        if len(users_data) <= 1:  # 只有標題列
-            # 建立預設管理員帳號 admin / admin123
-            default_admin = [
-                'admin',
-                hash_password('admin123'),
-                '系統管理員',
-                'admin',
-                datetime.now().isoformat()
-            ]
-            users_sheet.append_row(default_admin)
-    except Exception as e:
-        st.warning(f"⚠️ 檢查預設管理員時發生錯誤: {str(e)}")
+        
+        # 建立預設管理員帳號
+        default_admin = [
+            'admin',
+            hash_password('admin123'),
+            '系統管理員',
+            'admin',
+            datetime.now().isoformat()
+        ]
+        users_sheet.append_row(default_admin)
+    else:
+        users_sheet = _spreadsheet.worksheet('使用者')
     
     return docs_sheet, deleted_sheet, users_sheet
 
