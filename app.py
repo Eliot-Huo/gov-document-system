@@ -193,27 +193,29 @@ def generate_document_id(worksheet, date_str, is_reply, parent_id):
         if df.empty or 'ID' not in df.columns:
             if not is_reply:
                 date_code = date_str.replace('-', '')
-                return f"{date_code}001"
+                return f"金展詢{date_code}001"
             else:
                 return None
         
         if is_reply and parent_id:
+            # 計算該 parent_id 的回覆數量
             reply_count = len(df[df['Parent_ID'].astype(str) == str(parent_id)])
             new_reply_number = str(reply_count + 2).zfill(2)
-            doc_id = f"{new_reply_number}{parent_id}"
+            doc_id = f"金展回{new_reply_number}{parent_id}"
         else:
+            # 新發文:金展詢 + 日期 + 流水號
             date_code = date_str.replace('-', '')
+            # 找出同一天所有以「金展詢+日期」開頭的公文
             same_day_docs = df[
-                (df['ID'].astype(str).str.startswith(date_code)) & 
-                (df['ID'].astype(str).str.len() == 11)
+                df['ID'].astype(str).str.startswith(f"金展詢{date_code}")
             ]
             next_serial = str(len(same_day_docs) + 1).zfill(3)
-            doc_id = f"{date_code}{next_serial}"
+            doc_id = f"金展詢{date_code}{next_serial}"
         
         return doc_id
     except Exception as e:
         date_code = date_str.replace('-', '')
-        return f"{date_code}001"
+        return f"金展詢{date_code}001"
 
 def add_document_to_sheet(worksheet, doc_data):
     """新增公文資料"""
@@ -415,6 +417,44 @@ def check_needs_tracking(df, doc_id, doc_type, doc_date):
         return not has_reply
     except:
         return False
+
+def build_conversation_tree(df):
+    """建立公文對話串結構"""
+    if df.empty:
+        return []
+    
+    # 建立 ID 對應的資料字典
+    doc_dict = {row['ID']: row for _, row in df.iterrows()}
+    
+    # 找出所有根節點（沒有 Parent_ID 的公文）
+    root_docs = df[df['Parent_ID'].isna() | (df['Parent_ID'] == '')]
+    
+    def build_tree_recursive(doc_id, level=0):
+        """遞迴建立樹狀結構"""
+        result = []
+        if doc_id not in doc_dict:
+            return result
+        
+        doc = doc_dict[doc_id]
+        result.append({
+            'doc': doc,
+            'level': level,
+            'id': doc_id
+        })
+        
+        # 找出所有回覆此公文的子節點
+        children = df[df['Parent_ID'] == doc_id]
+        for _, child in children.iterrows():
+            result.extend(build_tree_recursive(child['ID'], level + 1))
+        
+        return result
+    
+    # 建立完整的樹狀列表
+    tree_list = []
+    for _, root in root_docs.iterrows():
+        tree_list.extend(build_tree_recursive(root['ID']))
+    
+    return tree_list
 
 def add_watermark_to_pdf(pdf_bytes, watermark_text):
     """為 PDF 添加浮水印（支援中文）"""
@@ -855,9 +895,23 @@ def main():
         if is_reply:
             df = get_all_documents(docs_sheet)
             if not df.empty:
-                doc_options = [f"{row['ID']} - {row['Subject']}" for _, row in df.iterrows()]
-                selected = st.selectbox("選擇原始公文", doc_options, key=f"parent_{st.session_state.form_key}")
-                parent_id = selected.split(" - ")[0] if selected else None
+                st.info("💡 選擇要回覆的公文（可以是任何類型：發文、收文、函等）")
+                # 建立更詳細的選項格式：ID | 類型 | 機關 | 主旨
+                doc_options = [
+                    f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                    for _, row in df.iterrows()
+                ]
+                selected = st.selectbox(
+                    "選擇原始公文（可選擇任何類型的公文進行回覆）", 
+                    doc_options, 
+                    key=f"parent_{st.session_state.form_key}"
+                )
+                parent_id = selected.split(" | ")[0] if selected else None
+                
+                # 顯示選中的公文資訊
+                if parent_id:
+                    selected_doc = df[df['ID'] == parent_id].iloc[0]
+                    st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
             else:
                 st.warning("目前沒有可回覆的公文")
         
@@ -924,22 +978,51 @@ def main():
         if df.empty:
             st.info("尚無公文資料")
         else:
-            def get_status(row):
+            # 建立對話串結構
+            tree_list = build_conversation_tree(df)
+            
+            # 統計需要追蹤的發文
+            tracking_count = 0
+            for item in tree_list:
+                row = item['doc']
                 if check_needs_tracking(df, row['ID'], row['Type'], row['Date']):
-                    days = (datetime.now() - datetime.strptime(row['Date'], '%Y-%m-%d')).days
-                    return f"🔴 待追蹤({days}天)"
-                return "✅ 正常"
+                    tracking_count += 1
             
-            display_cols = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Created_By']
-            df_display = df[display_cols].copy()
-            df_display['狀態'] = df.apply(get_status, axis=1)
-            df_display.columns = ['流水號', '日期', '類型', '機關', '主旨', '建立者', '狀態']
-            
-            tracking_count = len(df_display[df_display['狀態'].str.contains('待追蹤')])
             if tracking_count > 0:
                 st.warning(f"⚠️ 有 {tracking_count} 筆發文超過 7 天未收到回覆")
             
-            st.dataframe(df_display, width="stretch", hide_index=True)
+            # 顯示對話串
+            st.markdown("##### 對話串格式顯示（縮排表示回覆關係）")
+            
+            for item in tree_list:
+                row = item['doc']
+                level = item['level']
+                
+                # 計算縮排
+                indent = "　　" * level  # 全形空格縮排
+                
+                # 判斷圖示
+                if row['Type'] == '發文':
+                    icon = "📤"
+                else:
+                    icon = "📥"
+                
+                # 判斷狀態
+                if check_needs_tracking(df, row['ID'], row['Type'], row['Date']):
+                    days = (datetime.now() - datetime.strptime(row['Date'], '%Y-%m-%d')).days
+                    status = f"🔴 待追蹤({days}天)"
+                else:
+                    status = "✅ 正常"
+                
+                # 顯示公文資訊
+                created_by = row.get('Created_By', '未知')
+                st.markdown(
+                    f"{indent}{icon} **{row['ID']}** | {row['Date']} | {row['Type']} | "
+                    f"{row['Agency']} | {row['Subject'][:30]}... | 👤 {created_by} | {status}"
+                )
+            
+            st.markdown("---")
+            st.caption(f"共 {len(df)} 筆公文")
     
     # ===== 查詢預覽頁籤 =====
     with tabs[1]:
