@@ -117,12 +117,24 @@ def init_all_sheets(_spreadsheet):
     # 公文資料表
     if '公文資料' not in existing_sheets:
         doc_headers = ['ID', 'Date', 'Type', 'Agency', 'Subject', 'Parent_ID', 
-                       'Drive_File_ID', 'Created_At', 'Created_By', 'Status']
+                       'Drive_File_ID', 'Created_At', 'Created_By', 'Status',
+                       'OCR_Text', 'OCR_Status', 'OCR_Date']
         docs_sheet = _spreadsheet.add_worksheet(title='公文資料', rows=1000, cols=20)
         docs_sheet.append_row(doc_headers)
         time.sleep(0.5)  # 減少等待時間
     else:
         docs_sheet = _spreadsheet.worksheet('公文資料')
+        # 檢查是否有 OCR 欄位,沒有就新增
+        try:
+            headers = docs_sheet.row_values(1)
+            if 'OCR_Text' not in headers:
+                # 新增 OCR 欄位
+                next_col = len(headers) + 1
+                docs_sheet.update_cell(1, next_col, 'OCR_Text')
+                docs_sheet.update_cell(1, next_col + 1, 'OCR_Status')
+                docs_sheet.update_cell(1, next_col + 2, 'OCR_Date')
+        except:
+            pass
     
     # 刪除紀錄表
     if '刪除紀錄' not in existing_sheets:
@@ -231,7 +243,10 @@ def add_document_to_sheet(worksheet, doc_data):
             doc_data['drive_file_id'] or '',
             doc_data['created_at'],
             doc_data['created_by'],
-            'active'
+            'active',
+            '',  # OCR_Text (空白,稍後填入)
+            'pending',  # OCR_Status (待辨識)
+            ''  # OCR_Date (辨識完成後填入)
         ]
         worksheet.append_row(row)
         return True
@@ -477,6 +492,162 @@ def filter_recent_documents(df, months=3):
     except Exception as e:
         # 如果出錯,回傳全部
         return df
+
+# ===== OCR 相關函數 =====
+def ocr_pdf_from_drive(drive_service, file_id):
+    """
+    從 Google Drive 下載 PDF 並進行 OCR 辨識
+    
+    參數:
+        drive_service: Google Drive API service
+        file_id: PDF 在 Drive 中的 ID
+    
+    回傳:
+        辨識的文字內容 (string) 或 None (失敗)
+    """
+    try:
+        from google.cloud import vision
+        
+        # 1. 從 Drive 下載 PDF
+        pdf_bytes = download_from_drive(drive_service, file_id)
+        if not pdf_bytes:
+            return None
+        
+        # 2. 使用 Vision API 辨識
+        client = vision.ImageAnnotatorClient()
+        
+        # 將 PDF 轉成圖片並辨識每一頁
+        all_text = []
+        
+        # 使用 PyMuPDF 將 PDF 轉成圖片
+        if not PDF_PREVIEW_AVAILABLE:
+            return None
+            
+        import fitz
+        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        
+        # 限制最多辨識 20 頁 (避免成本過高)
+        max_pages = min(20, len(doc))
+        
+        for page_num in range(max_pages):
+            # 取得頁面
+            page = doc[page_num]
+            
+            # 轉成圖片 (PNG, 300 DPI 提高準確度)
+            pix = page.get_pixmap(dpi=300)
+            img_bytes = pix.tobytes("png")
+            
+            # 呼叫 Vision API
+            image = vision.Image(content=img_bytes)
+            response = client.text_detection(image=image)
+            
+            if response.text_annotations:
+                # 第一個結果是完整的文字
+                page_text = response.text_annotations[0].description
+                all_text.append(f"--- 第 {page_num + 1} 頁 ---\n{page_text}")
+        
+        doc.close()
+        
+        # 合併所有頁面的文字
+        full_text = "\n\n".join(all_text)
+        
+        # 限制字數 (Google Sheets 單一儲存格最多 50,000 字元)
+        if len(full_text) > 45000:
+            full_text = full_text[:45000] + "\n\n...(文字過長,已截斷)"
+        
+        return full_text
+        
+    except Exception as e:
+        print(f"OCR 辨識失敗: {str(e)}")
+        return None
+
+def update_ocr_result(worksheet, doc_id, ocr_text, status="completed"):
+    """
+    更新 OCR 辨識結果到 Google Sheets
+    
+    參數:
+        worksheet: Google Sheets 工作表
+        doc_id: 公文字號
+        ocr_text: 辨識的文字
+        status: 辨識狀態 (completed/failed)
+    """
+    try:
+        # 找到該公文的行號
+        cell = worksheet.find(doc_id)
+        if not cell:
+            return False
+        
+        row_num = cell.row
+        
+        # 取得欄位索引
+        headers = worksheet.row_values(1)
+        
+        # 檢查是否有 OCR 欄位
+        if 'OCR_Text' not in headers:
+            return False
+            
+        ocr_text_col = headers.index('OCR_Text') + 1
+        ocr_status_col = headers.index('OCR_Status') + 1
+        ocr_date_col = headers.index('OCR_Date') + 1
+        
+        # 更新資料
+        worksheet.update_cell(row_num, ocr_text_col, ocr_text or '')
+        worksheet.update_cell(row_num, ocr_status_col, status)
+        worksheet.update_cell(row_num, ocr_date_col, datetime.now().isoformat())
+        
+        return True
+    except Exception as e:
+        print(f"更新 OCR 結果失敗: {str(e)}")
+        return False
+
+def process_pending_ocr(docs_sheet, drive_service, limit=1):
+    """
+    處理待辨識的公文 (背景辨識)
+    
+    參數:
+        docs_sheet: Google Sheets 工作表
+        drive_service: Google Drive API service
+        limit: 一次處理幾筆 (預設 1)
+    
+    回傳:
+        處理的數量
+    """
+    try:
+        df = get_all_documents(docs_sheet)
+        
+        # 找出待辨識的公文
+        if 'OCR_Status' in df.columns:
+            pending = df[df['OCR_Status'] == 'pending'].head(limit)
+        else:
+            return 0
+        
+        if pending.empty:
+            return 0
+        
+        processed = 0
+        for _, doc in pending.iterrows():
+            doc_id = doc['ID']
+            file_id = doc.get('Drive_File_ID')
+            
+            if not file_id:
+                # 沒有檔案,標記為跳過
+                update_ocr_result(docs_sheet, doc_id, None, "skipped")
+                continue
+            
+            # 進行 OCR
+            ocr_text = ocr_pdf_from_drive(drive_service, file_id)
+            
+            if ocr_text:
+                update_ocr_result(docs_sheet, doc_id, ocr_text, "completed")
+                processed += 1
+            else:
+                update_ocr_result(docs_sheet, doc_id, None, "failed")
+        
+        return processed
+        
+    except Exception as e:
+        print(f"處理待辨識公文失敗: {str(e)}")
+        return 0
 
 def add_watermark_to_pdf(pdf_bytes, watermark_text):
     """為 PDF 添加浮水印（支援中文）"""
@@ -897,6 +1068,29 @@ def main():
         else:
             st.success("✅ 資料夾已設定")
             st.caption("刪除的檔案會自動移到「已刪除公文」子資料夾")
+        
+        st.markdown("---")
+        
+        # OCR 背景辨識
+        st.header("📝 文字辨識")
+        
+        # 檢查待辨識數量
+        df = get_all_documents(docs_sheet)
+        if 'OCR_Status' in df.columns:
+            pending_count = len(df[df['OCR_Status'] == 'pending'])
+            if pending_count > 0:
+                st.info(f"⏳ {pending_count} 份公文待辨識")
+                
+                if st.button("🔄 處理待辨識公文", width="stretch"):
+                    with st.spinner("辨識中..."):
+                        processed = process_pending_ocr(docs_sheet, drive_service, limit=1)
+                        if processed > 0:
+                            st.success(f"✅ 已辨識 {processed} 份公文")
+                            st.rerun()
+                        else:
+                            st.warning("沒有可辨識的公文")
+            else:
+                st.success("✅ 所有公文已辨識")
     
     # 主畫面 - Logo 和標題橫幅
     try:
@@ -1273,9 +1467,17 @@ def main():
                 )
             
             search_keyword = st.text_input(
-                "🔍 關鍵字 (搜尋主旨)",
+                "🔍 關鍵字",
                 placeholder="輸入關鍵字...",
                 key="search_keyword"
+            )
+            
+            # 全文搜尋選項
+            search_fulltext = st.checkbox(
+                "📝 搜尋文字內容 (OCR辨識的文字)",
+                value=False,
+                key="search_fulltext",
+                help="勾選後會搜尋 OCR 辨識的文字內容，而非只搜尋主旨"
             )
             
             # 搜尋按鈕
@@ -1311,9 +1513,16 @@ def main():
                 
                 # 關鍵字篩選
                 if search_keyword:
-                    filtered_df = filtered_df[
-                        filtered_df['Subject'].str.contains(search_keyword, case=False, na=False)
-                    ]
+                    if search_fulltext and 'OCR_Text' in filtered_df.columns:
+                        # 全文搜尋 (搜尋 OCR 文字內容)
+                        filtered_df = filtered_df[
+                            filtered_df['OCR_Text'].str.contains(search_keyword, case=False, na=False)
+                        ]
+                    else:
+                        # 只搜尋主旨
+                        filtered_df = filtered_df[
+                            filtered_df['Subject'].str.contains(search_keyword, case=False, na=False)
+                        ]
                 
                 # 只顯示根節點（原始公文）
                 root_docs = filtered_df[
@@ -1406,6 +1615,51 @@ def main():
                             st.session_state.show_detail = False
                             del st.session_state.selected_doc_id
                             st.rerun()
+                    
+                    st.markdown("---")
+                    
+                    # OCR 文字顯示
+                    ocr_status = selected_row.get('OCR_Status', 'pending')
+                    ocr_text = selected_row.get('OCR_Text', '')
+                    
+                    if ocr_status == 'completed' and ocr_text:
+                        with st.expander("📝 辨識文字內容", expanded=False):
+                            st.text_area(
+                                "文字內容 (可複製)", 
+                                ocr_text, 
+                                height=300,
+                                key=f"ocr_text_{selected_id}"
+                            )
+                            st.caption(f"辨識時間: {selected_row.get('OCR_Date', '未知')}")
+                    elif ocr_status == 'pending':
+                        st.info("⏳ 文字辨識中，請稍後查看...")
+                        if st.button("🔄 立即辨識", key=f"ocr_now_{selected_id}"):
+                            with st.spinner("辨識中..."):
+                                file_id = selected_row.get('Drive_File_ID')
+                                if file_id:
+                                    ocr_result = ocr_pdf_from_drive(drive_service, file_id)
+                                    if ocr_result:
+                                        update_ocr_result(docs_sheet, selected_id, ocr_result, "completed")
+                                        st.success("✅ 辨識完成！")
+                                        st.rerun()
+                                    else:
+                                        update_ocr_result(docs_sheet, selected_id, None, "failed")
+                                        st.error("❌ 辨識失敗")
+                    elif ocr_status == 'failed':
+                        st.warning("❌ 文字辨識失敗")
+                        if st.button("🔄 重新辨識", key=f"ocr_retry_{selected_id}"):
+                            with st.spinner("辨識中..."):
+                                file_id = selected_row.get('Drive_File_ID')
+                                if file_id:
+                                    ocr_result = ocr_pdf_from_drive(drive_service, file_id)
+                                    if ocr_result:
+                                        update_ocr_result(docs_sheet, selected_id, ocr_result, "completed")
+                                        st.success("✅ 辨識完成！")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ 辨識仍然失敗，請檢查 PDF 品質")
+                    elif ocr_status == 'skipped':
+                        st.info("ℹ️ 此公文無附件，已跳過辨識")
                     
                     st.markdown("---")
                     
