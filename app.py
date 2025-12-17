@@ -457,6 +457,27 @@ def build_conversation_tree(df):
     
     return tree_list
 
+def filter_recent_documents(df, months=3):
+    """篩選近 N 個月的公文"""
+    if df.empty:
+        return df
+    
+    try:
+        from datetime import timedelta
+        
+        # 計算日期門檻
+        threshold_date = datetime.now() - timedelta(days=months * 30)
+        
+        # 篩選近 N 個月的公文
+        recent_docs = df[
+            pd.to_datetime(df['Date'], errors='coerce') >= threshold_date
+        ]
+        
+        return recent_docs
+    except Exception as e:
+        # 如果出錯,回傳全部
+        return df
+
 def add_watermark_to_pdf(pdf_bytes, watermark_text):
     """為 PDF 添加浮水印（支援中文）"""
     if not PDF_PREVIEW_AVAILABLE:
@@ -958,72 +979,133 @@ def main():
                 # 仍然需要選擇回覆哪個公文(建立對話串關係)
                 st.markdown("---")
                 st.write("💡 請選擇這個政府回文是回覆我方的哪個公文:")
-                df = get_all_documents(docs_sheet)
-                if not df.empty:
-                    doc_options = [
-                        f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
-                        for _, row in df.iterrows()
-                    ]
-                    selected = st.selectbox(
-                        "選擇原始公文（建立對話串關係）", 
-                        doc_options, 
-                        key=f"parent_{st.session_state.form_key}"
-                    )
-                    parent_id = selected.split(" | ")[0] if selected else None
+                
+                # 提供手動輸入或選擇
+                parent_input_mode = st.radio(
+                    "選擇方式:",
+                    ["從近三個月公文選擇", "手動輸入文號 (用於三個月前的公文)"],
+                    key=f"parent_input_mode1_{st.session_state.form_key}"
+                )
+                
+                if parent_input_mode == "從近三個月公文選擇":
+                    df = get_all_documents(docs_sheet)
+                    recent_df = filter_recent_documents(df, months=3)
                     
-                    if parent_id:
-                        selected_doc = df[df['ID'] == parent_id].iloc[0]
-                        st.success(f"回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                    if not recent_df.empty:
+                        doc_options = [
+                            f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                            for _, row in recent_df.iterrows()
+                        ]
+                        selected = st.selectbox(
+                            "選擇原始公文（近三個月）", 
+                            doc_options, 
+                            key=f"parent_{st.session_state.form_key}"
+                        )
+                        parent_id = selected.split(" | ")[0] if selected else None
+                        
+                        if parent_id:
+                            selected_doc = df[df['ID'] == parent_id].iloc[0]
+                            st.success(f"回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                    else:
+                        st.warning("近三個月沒有公文,請使用手動輸入")
                 else:
-                    st.warning("目前沒有可回覆的公文")
+                    # 手動輸入文號
+                    parent_id = st.text_input(
+                        "📝 請輸入原始公文文號",
+                        placeholder="例：金展詢1130115001",
+                        key=f"parent_manual_{st.session_state.form_key}"
+                    )
+                    if parent_id:
+                        st.success(f"回覆：**{parent_id}**")
                 
             else:
                 # 模式2: 使用系統流水號
                 use_manual_id = False
-                df = get_all_documents(docs_sheet)
-                if not df.empty:
-                    st.info("💡 選擇要回覆的政府公文（系統將自動產生流水號）")
-                    doc_options = [
-                        f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
-                        for _, row in df.iterrows()
-                    ]
-                    selected = st.selectbox(
-                        "選擇要回覆的公文", 
-                        doc_options, 
-                        key=f"parent_{st.session_state.form_key}"
-                    )
-                    parent_id = selected.split(" | ")[0] if selected else None
+                
+                # 提供手動輸入或選擇
+                parent_input_mode = st.radio(
+                    "選擇要回覆的公文方式:",
+                    ["從近三個月公文選擇", "手動輸入文號 (用於三個月前的公文)"],
+                    key=f"parent_input_mode2_{st.session_state.form_key}"
+                )
+                
+                if parent_input_mode == "從近三個月公文選擇":
+                    df = get_all_documents(docs_sheet)
+                    recent_df = filter_recent_documents(df, months=3)
                     
-                    if parent_id:
-                        selected_doc = df[df['ID'] == parent_id].iloc[0]
-                        st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                    if not recent_df.empty:
+                        st.info("💡 選擇要回覆的政府公文（系統將自動產生流水號）")
+                        doc_options = [
+                            f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                            for _, row in recent_df.iterrows()
+                        ]
+                        selected = st.selectbox(
+                            "選擇要回覆的公文（近三個月）", 
+                            doc_options, 
+                            key=f"parent_{st.session_state.form_key}"
+                        )
+                        parent_id = selected.split(" | ")[0] if selected else None
+                        
+                        if parent_id:
+                            selected_doc = df[df['ID'] == parent_id].iloc[0]
+                            st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                    else:
+                        st.warning("近三個月沒有公文,請使用手動輸入")
                 else:
-                    st.warning("目前沒有可回覆的公文")
+                    # 手動輸入文號
+                    st.info("💡 請先到「查詢預覽」搜尋舊公文,找到後輸入文號")
+                    parent_id = st.text_input(
+                        "📝 請輸入要回覆的公文文號",
+                        placeholder="例：府教字第1130012345號",
+                        key=f"parent_manual2_{st.session_state.form_key}"
+                    )
+                    if parent_id:
+                        st.success(f"將回覆：**{parent_id}**")
         
         else:
             # 發文、函、簽呈等其他類型
             is_reply = st.checkbox("↩️ 這是回覆案件", key=f"reply_{st.session_state.form_key}")
             
             if is_reply:
-                df = get_all_documents(docs_sheet)
-                if not df.empty:
-                    st.info("💡 選擇要回覆的公文（可以是任何類型：發文、收文、函等）")
-                    doc_options = [
-                        f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
-                        for _, row in df.iterrows()
-                    ]
-                    selected = st.selectbox(
-                        "選擇原始公文", 
-                        doc_options, 
-                        key=f"parent_{st.session_state.form_key}"
-                    )
-                    parent_id = selected.split(" | ")[0] if selected else None
+                # 提供手動輸入或選擇
+                parent_input_mode = st.radio(
+                    "選擇要回覆的公文方式:",
+                    ["從近三個月公文選擇", "手動輸入文號 (用於三個月前的公文)"],
+                    key=f"parent_input_mode3_{st.session_state.form_key}"
+                )
+                
+                if parent_input_mode == "從近三個月公文選擇":
+                    df = get_all_documents(docs_sheet)
+                    recent_df = filter_recent_documents(df, months=3)
                     
-                    if parent_id:
-                        selected_doc = df[df['ID'] == parent_id].iloc[0]
-                        st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                    if not recent_df.empty:
+                        st.info("💡 選擇要回覆的公文（可以是任何類型）")
+                        doc_options = [
+                            f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                            for _, row in recent_df.iterrows()
+                        ]
+                        selected = st.selectbox(
+                            "選擇原始公文（近三個月）", 
+                            doc_options, 
+                            key=f"parent_{st.session_state.form_key}"
+                        )
+                        parent_id = selected.split(" | ")[0] if selected else None
+                        
+                        if parent_id:
+                            selected_doc = df[df['ID'] == parent_id].iloc[0]
+                            st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                    else:
+                        st.warning("近三個月沒有公文,請使用手動輸入")
                 else:
-                    st.warning("目前沒有可回覆的公文")
+                    # 手動輸入文號
+                    st.info("💡 請先到「查詢預覽」搜尋舊公文,找到後輸入文號")
+                    parent_id = st.text_input(
+                        "📝 請輸入原始公文文號",
+                        placeholder="例：金展詢1130115001 或 府教字第1130012345號",
+                        key=f"parent_manual3_{st.session_state.form_key}"
+                    )
+                    if parent_id:
+                        st.success(f"將回覆：**{parent_id}**")
         
         st.markdown("---")
         
@@ -1150,48 +1232,165 @@ def main():
     
     # ===== 查詢預覽頁籤 =====
     with tabs[1]:
-        st.header("查詢與預覽")
+        st.header("🔍 查詢與預覽")
         
         df = get_all_documents(docs_sheet)
         
         if df.empty:
             st.info("尚無公文資料")
         else:
-            left_col, right_col = st.columns([1, 2])
+            # ===== 搜尋表單 =====
+            st.subheader("📋 搜尋條件")
             
-            with left_col:
-                st.subheader("📋 公文清單")
-                
-                for idx, row in df.iterrows():
-                    doc_id = row['ID']
-                    subject = row['Subject']
-                    agency = row['Agency']
-                    doc_type = row['Type']
-                    created_by = row.get('Created_By', '未知')
-                    
-                    button_label = f"**{doc_id}**\n{agency} | {doc_type}\n{subject[:20]}...\n👤 {created_by}"
-                    
-                    if st.button(button_label, key=f"select_{doc_id}", width="stretch"):
-                        st.session_state.selected_doc_id = doc_id
-                
-                st.markdown("---")
-                st.caption(f"共 {len(df)} 筆公文")
+            col1, col2, col3, col4 = st.columns(4)
             
-            with right_col:
-                st.subheader("👁️ 文件資訊")
+            with col1:
+                search_date_start = st.date_input(
+                    "📅 開始日期",
+                    value=None,
+                    key="search_date_start"
+                )
+            
+            with col2:
+                search_date_end = st.date_input(
+                    "📅 結束日期",
+                    value=None,
+                    key="search_date_end"
+                )
+            
+            with col3:
+                search_agency = st.text_input(
+                    "🏢 機關單位",
+                    placeholder="例：教育部",
+                    key="search_agency"
+                )
+            
+            with col4:
+                search_type = st.selectbox(
+                    "📋 公文類型",
+                    ["全部", "發文", "收文", "簽呈", "函"],
+                    key="search_type"
+                )
+            
+            search_keyword = st.text_input(
+                "🔍 關鍵字 (搜尋主旨)",
+                placeholder="輸入關鍵字...",
+                key="search_keyword"
+            )
+            
+            # 搜尋按鈕
+            if st.button("🔎 搜尋", type="primary"):
+                st.session_state.search_performed = True
+            
+            st.markdown("---")
+            
+            # ===== 搜尋結果 =====
+            if 'search_performed' in st.session_state and st.session_state.search_performed:
+                # 篩選資料
+                filtered_df = df.copy()
                 
-                if 'selected_doc_id' not in st.session_state:
-                    st.info("👈 請從左側選擇公文")
+                # 日期篩選
+                if search_date_start:
+                    filtered_df = filtered_df[
+                        pd.to_datetime(filtered_df['Date']) >= pd.to_datetime(search_date_start)
+                    ]
+                if search_date_end:
+                    filtered_df = filtered_df[
+                        pd.to_datetime(filtered_df['Date']) <= pd.to_datetime(search_date_end)
+                    ]
+                
+                # 機關篩選
+                if search_agency:
+                    filtered_df = filtered_df[
+                        filtered_df['Agency'].str.contains(search_agency, case=False, na=False)
+                    ]
+                
+                # 類型篩選
+                if search_type != "全部":
+                    filtered_df = filtered_df[filtered_df['Type'] == search_type]
+                
+                # 關鍵字篩選
+                if search_keyword:
+                    filtered_df = filtered_df[
+                        filtered_df['Subject'].str.contains(search_keyword, case=False, na=False)
+                    ]
+                
+                # 只顯示根節點（原始公文）
+                root_docs = filtered_df[
+                    filtered_df['Parent_ID'].isna() | (filtered_df['Parent_ID'] == '')
+                ]
+                
+                st.subheader(f"📊 搜尋結果 (找到 {len(root_docs)} 筆原始公文)")
+                
+                if root_docs.empty:
+                    st.info("沒有符合條件的公文")
                 else:
-                    selected_id = st.session_state.selected_doc_id
-                    selected_row = df[df['ID'] == selected_id]
-                    
-                    if selected_row.empty:
-                        st.warning("找不到此公文")
-                        del st.session_state.selected_doc_id
-                    else:
-                        selected_row = selected_row.iloc[0]
+                    # 顯示每個原始公文及其對話串
+                    for idx, root_row in root_docs.iterrows():
+                        root_id = root_row['ID']
                         
+                        # 用 expander 來展開對話串
+                        with st.expander(
+                            f"📤 **{root_id}** | {root_row['Date']} | {root_row['Agency']} | {root_row['Subject'][:40]}...",
+                            expanded=False
+                        ):
+                            # 取得此原始公文的完整對話串
+                            def get_conversation_thread(df, root_id):
+                                """取得特定原始公文的對話串"""
+                                thread = []
+                                
+                                def collect_thread(doc_id, level=0):
+                                    doc = df[df['ID'] == doc_id]
+                                    if not doc.empty:
+                                        doc = doc.iloc[0]
+                                        thread.append({'doc': doc, 'level': level, 'id': doc_id})
+                                        
+                                        # 找子節點
+                                        children = df[df['Parent_ID'] == doc_id]
+                                        for _, child in children.iterrows():
+                                            collect_thread(child['ID'], level + 1)
+                                
+                                collect_thread(root_id)
+                                return thread
+                            
+                            conversation = get_conversation_thread(df, root_id)
+                            
+                            # 顯示對話串
+                            for item in conversation:
+                                doc = item['doc']
+                                level = item['level']
+                                doc_id = item['id']
+                                
+                                # 縮排
+                                indent = "　　" * level
+                                
+                                # 圖示
+                                if doc['Type'] == '發文' or doc['Type'] == '函':
+                                    icon = "📤"
+                                else:
+                                    icon = "📥"
+                                
+                                # 建立可點選的按鈕
+                                button_label = f"{indent}{icon} {doc_id} | {doc['Date']} | {doc['Type']} | {doc['Agency']}"
+                                
+                                if st.button(button_label, key=f"view_{doc_id}_{idx}"):
+                                    st.session_state.selected_doc_id = doc_id
+                                    st.session_state.show_detail = True
+            
+            # ===== 顯示選中公文的詳細資訊 =====
+            if 'show_detail' in st.session_state and st.session_state.show_detail and 'selected_doc_id' in st.session_state:
+                st.markdown("---")
+                st.subheader("👁️ 公文詳細資訊")
+                
+                selected_id = st.session_state.selected_doc_id
+                selected_row = df[df['ID'] == selected_id]
+                
+                if not selected_row.empty:
+                    selected_row = selected_row.iloc[0]
+                    
+                    col_info, col_action = st.columns([3, 1])
+                    
+                    with col_info:
                         st.markdown(f"**公文字號：** `{selected_row['ID']}`")
                         st.markdown(f"**機關單位：** {selected_row['Agency']}")
                         st.markdown(f"**類型：** {selected_row['Type']}")
@@ -1201,46 +1400,47 @@ def main():
                         
                         if selected_row.get('Parent_ID'):
                             st.markdown(f"**回覆：** `{selected_row['Parent_ID']}`")
-                        
-                        st.markdown("---")
-                        
-                        # 刪除功能
-                        with st.expander("⚠️ 刪除公文"):
-                            st.warning("刪除後將移至刪除紀錄，無法從前台復原！")
-                            
-                            confirm_text = st.text_input(
-                                f"請輸入公文字號 `{selected_id}` 以確認：",
-                                key="delete_confirm"
-                            )
-                            
-                            if st.button("🗑️ 確認刪除", type="secondary"):
-                                if confirm_text == selected_id:
-                                    drive_file_id = selected_row.get('Drive_File_ID')
-                                    
-                                    # 移動 PDF 到刪除資料夾
-                                    if drive_file_id and deleted_folder_id:
-                                        move_file_to_folder(drive_service, drive_file_id, deleted_folder_id)
-                                    
-                                    # 軟刪除（移到刪除紀錄）
-                                    if soft_delete_document(docs_sheet, deleted_sheet, selected_id, 
-                                                           st.session_state.user['display_name']):
-                                        st.success(f"✅ 公文 {selected_id} 已刪除")
-                                        del st.session_state.selected_doc_id
-                                        st.rerun()
-                                else:
-                                    st.error("❌ 輸入的公文字號不正確")
-            
-            # PDF 預覽（全寬）
-            if 'selected_doc_id' in st.session_state:
-                selected_id = st.session_state.selected_doc_id
-                selected_row = df[df['ID'] == selected_id]
-                
-                if not selected_row.empty:
-                    selected_row = selected_row.iloc[0]
-                    drive_file_id = selected_row.get('Drive_File_ID')
+                    
+                    with col_action:
+                        if st.button("❌ 關閉詳細資訊"):
+                            st.session_state.show_detail = False
+                            del st.session_state.selected_doc_id
+                            st.rerun()
                     
                     st.markdown("---")
+                    
+                    # 刪除功能
+                    with st.expander("⚠️ 刪除公文"):
+                        st.warning("刪除後將移至刪除紀錄，無法從前台復原！")
+                        
+                        confirm_text = st.text_input(
+                            f"請輸入公文字號 `{selected_id}` 以確認：",
+                            key="delete_confirm"
+                        )
+                        
+                        if st.button("🗑️ 確認刪除", type="secondary"):
+                            if confirm_text == selected_id:
+                                drive_file_id = selected_row.get('Drive_File_ID')
+                                
+                                # 移動 PDF 到刪除資料夾
+                                if drive_file_id and deleted_folder_id:
+                                    move_file_to_folder(drive_service, drive_file_id, deleted_folder_id)
+                                
+                                # 軟刪除（移到刪除紀錄）
+                                if soft_delete_document(docs_sheet, deleted_sheet, selected_id, 
+                                                       st.session_state.user['display_name']):
+                                    st.success(f"✅ 公文 {selected_id} 已刪除")
+                                    st.session_state.show_detail = False
+                                    del st.session_state.selected_doc_id
+                                    st.rerun()
+                            else:
+                                st.error("❌ 輸入的公文字號不正確")
+                    
+                    st.markdown("---")
+                    
+                    # PDF 預覽
                     st.subheader("📄 PDF 預覽")
+                    drive_file_id = selected_row.get('Drive_File_ID')
                     
                     if drive_file_id:
                         with st.spinner("載入中..."):
