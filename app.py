@@ -931,31 +931,99 @@ def main():
         
         st.markdown("---")
         
-        is_reply = st.checkbox("↩️ 這是回覆案件", key=f"reply_{st.session_state.form_key}")
+        # 根據公文類型顯示不同的文號輸入方式
         parent_id = None
+        manual_doc_id = None
+        use_manual_id = False
         
-        if is_reply:
-            df = get_all_documents(docs_sheet)
-            if not df.empty:
-                st.info("💡 選擇要回覆的公文（可以是任何類型：發文、收文、函等）")
-                # 建立更詳細的選項格式：ID | 類型 | 機關 | 主旨
-                doc_options = [
-                    f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
-                    for _, row in df.iterrows()
-                ]
-                selected = st.selectbox(
-                    "選擇原始公文（可選擇任何類型的公文進行回覆）", 
-                    doc_options, 
-                    key=f"parent_{st.session_state.form_key}"
+        # 如果是收文,提供兩種模式選擇
+        if doc_type == "收文":
+            st.subheader("📥 收文文號設定")
+            
+            doc_id_mode = st.radio(
+                "請選擇文號來源:",
+                ["政府機關回文 (手動輸入政府文號)", "我方針對政府回文再回覆 (使用系統流水號)"],
+                key=f"doc_id_mode_{st.session_state.form_key}"
+            )
+            
+            if doc_id_mode == "政府機關回文 (手動輸入政府文號)":
+                # 模式1: 手動輸入政府文號
+                use_manual_id = True
+                manual_doc_id = st.text_input(
+                    "📝 請輸入政府機關的文號",
+                    placeholder="例：府教字第1130012345號",
+                    key=f"manual_id_{st.session_state.form_key}"
                 )
-                parent_id = selected.split(" | ")[0] if selected else None
                 
-                # 顯示選中的公文資訊
-                if parent_id:
-                    selected_doc = df[df['ID'] == parent_id].iloc[0]
-                    st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                # 仍然需要選擇回覆哪個公文(建立對話串關係)
+                st.markdown("---")
+                st.write("💡 請選擇這個政府回文是回覆我方的哪個公文:")
+                df = get_all_documents(docs_sheet)
+                if not df.empty:
+                    doc_options = [
+                        f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                        for _, row in df.iterrows()
+                    ]
+                    selected = st.selectbox(
+                        "選擇原始公文（建立對話串關係）", 
+                        doc_options, 
+                        key=f"parent_{st.session_state.form_key}"
+                    )
+                    parent_id = selected.split(" | ")[0] if selected else None
+                    
+                    if parent_id:
+                        selected_doc = df[df['ID'] == parent_id].iloc[0]
+                        st.success(f"回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                else:
+                    st.warning("目前沒有可回覆的公文")
+                
             else:
-                st.warning("目前沒有可回覆的公文")
+                # 模式2: 使用系統流水號
+                use_manual_id = False
+                df = get_all_documents(docs_sheet)
+                if not df.empty:
+                    st.info("💡 選擇要回覆的政府公文（系統將自動產生流水號）")
+                    doc_options = [
+                        f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                        for _, row in df.iterrows()
+                    ]
+                    selected = st.selectbox(
+                        "選擇要回覆的公文", 
+                        doc_options, 
+                        key=f"parent_{st.session_state.form_key}"
+                    )
+                    parent_id = selected.split(" | ")[0] if selected else None
+                    
+                    if parent_id:
+                        selected_doc = df[df['ID'] == parent_id].iloc[0]
+                        st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                else:
+                    st.warning("目前沒有可回覆的公文")
+        
+        else:
+            # 發文、函、簽呈等其他類型
+            is_reply = st.checkbox("↩️ 這是回覆案件", key=f"reply_{st.session_state.form_key}")
+            
+            if is_reply:
+                df = get_all_documents(docs_sheet)
+                if not df.empty:
+                    st.info("💡 選擇要回覆的公文（可以是任何類型：發文、收文、函等）")
+                    doc_options = [
+                        f"{row['ID']} | {row['Type']} | {row['Agency']} | {row['Subject'][:30]}..." 
+                        for _, row in df.iterrows()
+                    ]
+                    selected = st.selectbox(
+                        "選擇原始公文", 
+                        doc_options, 
+                        key=f"parent_{st.session_state.form_key}"
+                    )
+                    parent_id = selected.split(" | ")[0] if selected else None
+                    
+                    if parent_id:
+                        selected_doc = df[df['ID'] == parent_id].iloc[0]
+                        st.success(f"將回覆：**{parent_id}** ({selected_doc['Type']}) - {selected_doc['Subject']}")
+                else:
+                    st.warning("目前沒有可回覆的公文")
         
         st.markdown("---")
         
@@ -966,11 +1034,21 @@ def main():
         
         st.markdown("---")
         
+        # 決定最終使用的文號
         date_str = date_input.strftime('%Y-%m-%d')
-        preview_id = generate_document_id(docs_sheet, date_str, is_reply, parent_id)
+        final_doc_id = None
         
-        if preview_id:
-            st.info(f"### 🔢 預覽流水號: `{preview_id}`")
+        if use_manual_id and manual_doc_id:
+            # 使用手動輸入的政府文號
+            final_doc_id = manual_doc_id
+            st.info(f"### 📝 使用文號: `{final_doc_id}` (政府文號)")
+        else:
+            # 使用系統產生的流水號
+            is_reply_for_generation = (doc_type != "收文" and parent_id) or (doc_type == "收文" and parent_id and not use_manual_id)
+            preview_id = generate_document_id(docs_sheet, date_str, is_reply_for_generation, parent_id)
+            final_doc_id = preview_id
+            if preview_id:
+                st.info(f"### 🔢 預覽流水號: `{preview_id}`")
         
         st.markdown("---")
         
@@ -979,31 +1057,35 @@ def main():
                 st.error("❌ 請先設定 Google Drive Folder ID")
             elif not subject or not agency:
                 st.error("❌ 請填寫完整資料")
-            elif is_reply and not parent_id:
+            elif use_manual_id and not manual_doc_id:
+                st.error("❌ 請輸入政府機關的文號")
+            elif not parent_id and (doc_type == "收文" or (doc_type in ["發文", "函", "簽呈"] and 'is_reply' in locals() and is_reply)):
                 st.error("❌ 請選擇原始公文")
             elif not uploaded_file:
                 st.error("❌ 請上傳 PDF 檔案")
+            elif not final_doc_id:
+                st.error("❌ 無法產生文號")
             else:
                 with st.spinner("上傳中..."):
                     file_bytes = uploaded_file.read()
-                    filename = f"{preview_id}_{agency}_{subject}.pdf"
+                    filename = f"{final_doc_id}_{agency}_{subject}.pdf"
                     file_id = upload_to_drive(drive_service, file_bytes, filename, folder_id)
                     
                     if file_id:
                         doc_data = {
-                            'id': preview_id,
+                            'id': final_doc_id,
                             'date': date_str,
                             'type': doc_type,
                             'agency': agency,
                             'subject': subject,
-                            'parent_id': parent_id,
+                            'parent_id': parent_id if parent_id else '',
                             'drive_file_id': file_id,
                             'created_at': datetime.now().isoformat(),
                             'created_by': st.session_state.user['display_name']
                         }
                         
                         if add_document_to_sheet(docs_sheet, doc_data):
-                            st.success(f"✅ 公文新增成功！流水號：{preview_id}")
+                            st.success(f"✅ 公文新增成功！文號：{final_doc_id}")
                             st.balloons()
                             st.session_state.uploader_key += 1
                             st.session_state.form_key += 1
