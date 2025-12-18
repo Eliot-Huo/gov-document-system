@@ -2,17 +2,17 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Team Document System",
-    page_icon="🏢",  # 改用辦公大樓 icon
+    page_icon="🏢",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ===== 自訂 CSS 樣式 (現代專業藍色系) =====
+# ===== 自訂 CSS 樣式 (現代專業藍色系 - 修正文字顏色) =====
 st.markdown("""
 <style>
     /* 全域設定 */
     .main {
-        background-color: #F0F2F6; /* 淺灰藍背景 */
+        background-color: #F0F2F6;
     }
     
     /* 隱藏 Streamlit 預設元素 */
@@ -53,7 +53,7 @@ st.markdown("""
     }
     
     .feature-tile:hover {
-        background: linear-gradient(135deg, #FFFFFF 0%, #E3F2FD 100%); /* Hover 時變淡藍色 */
+        background: linear-gradient(135deg, #FFFFFF 0%, #E3F2FD 100%);
         border-color: #3498DB;
         box-shadow: 0 6px 12px rgba(52, 152, 219, 0.15);
         transform: translateY(-4px);
@@ -87,51 +87,7 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(239, 68, 68, 0.05);
     }
     
-    .alert-card-warning {
-        background: #FFFBEB;
-        border-left: 4px solid #F59E0B;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
-    }
-    
-    .alert-card-success {
-        background: #ECFDF5;
-        border-left: 4px solid #10B981;
-        border-radius: 8px;
-        padding: 16px;
-        margin-bottom: 12px;
-    }
-    
-    /* 統計卡片 */
-    .stat-card {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        border: 1px solid #E0E4E8;
-    }
-    
-    .stat-number {
-        font-size: 36px;
-        font-weight: 700;
-        color: #2C3E50;
-        margin: 8px 0;
-    }
-    
-    .stat-label {
-        font-size: 14px;
-        color: #7F8C8D;
-    }
-    
-    .stat-delta {
-        font-size: 12px;
-        color: #EF4444;
-        margin-top: 4px;
-    }
-    
-    /* Header - 專業深藍漸層 */
+    /* Header */
     .custom-header {
         background: linear-gradient(90deg, #1A2533 0%, #2C3E50 100%);
         padding: 24px 30px;
@@ -143,7 +99,7 @@ st.markdown("""
         box-shadow: 0 4px 12px rgba(44, 62, 80, 0.2);
     }
     
-    /* 按鈕樣式 - 藍色系 */
+    /* 按鈕樣式 */
     .stButton > button {
         background: #34495E;
         color: white;
@@ -161,7 +117,6 @@ st.markdown("""
         transform: translateY(-1px);
     }
     
-    /* Primary 按鈕特別樣式 */
     button[type="primary"] {
         background: linear-gradient(90deg, #3498DB 0%, #2980B9 100%);
     }
@@ -171,13 +126,16 @@ st.markdown("""
         background: #FFFFFF;
         border-radius: 8px;
         border: 1px solid #E0E4E8;
+        color: #2C3E50;
     }
     
-    /* 輸入框 */
+    /* ===== 修正重點：輸入框樣式 ===== */
     .stTextInput > div > div > input {
         border-color: #CBD5E1;
         border-radius: 8px;
         background-color: #FFFFFF;
+        color: #2C3E50 !important;      /* 強制文字顏色為深藍色 */
+        caret-color: #2C3E50;           /* 游標顏色 */
     }
     
     .stTextInput > div > div > input:focus {
@@ -185,15 +143,30 @@ st.markdown("""
         box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
     }
     
+    /* 修正 placeholder 顏色 */
+    .stTextInput > div > div > input::placeholder {
+        color: #94A3B8;
+    }
+    
     /* 選擇框 */
     .stSelectbox > div > div {
         border-color: #CBD5E1;
         border-radius: 8px;
+        background-color: #FFFFFF;     /* 統一背景色 */
+        color: #2C3E50 !important;     /* 統一文字色 */
     }
     
+    /* 日期選擇器 */
+    .stDateInput > div > div > input {
+        color: #2C3E50 !important;
+        background-color: #FFFFFF;
+        border-color: #CBD5E1;
+        border-radius: 8px;
+    }
+
     /* Metric 樣式優化 */
     [data-testid="stMetricValue"] {
-        color: #1A5F7A; /* 深藍色數字 */
+        color: #1A5F7A;
         font-size: 28px;
         font-weight: 700;
     }
