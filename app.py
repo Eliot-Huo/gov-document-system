@@ -689,7 +689,17 @@ def ocr_pdf_from_drive(drive_service, file_id):
         辨識的文字內容 (string) 或 None (失敗)
     """
     try:
+        # 檢查是否有 Google Cloud Vision API 設定
+        if 'gcp_service_account' not in st.secrets:
+            print("OCR 辨識失敗: 未設定 Google Cloud Vision API")
+            return None
+        
         from google.cloud import vision
+        from google.oauth2 import service_account
+        
+        # 使用 service account 認證
+        credentials_dict = dict(st.secrets['gcp_service_account'])
+        credentials = service_account.Credentials.from_service_account_info(credentials_dict)
         
         # 1. 從 Drive 下載 PDF
         pdf_bytes = download_from_drive(drive_service, file_id)
@@ -697,7 +707,7 @@ def ocr_pdf_from_drive(drive_service, file_id):
             return None
         
         # 2. 使用 Vision API 辨識
-        client = vision.ImageAnnotatorClient()
+        client = vision.ImageAnnotatorClient(credentials=credentials)
         
         # 將 PDF 轉成圖片並辨識每一頁
         all_text = []
@@ -1514,43 +1524,83 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
     col1, col2 = st.columns(2)
     
     with col1:
-        if st.button("➕\n\n新增公文\n\n上傳 PDF 建立新案件", key="tile_add", use_container_width=True, height=150):
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
+                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
+                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-size: 48px;">➕</div>
+            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">新增公文</div>
+            <div style="font-size: 14px; color: #666;">上傳 PDF 建立新案件</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("點擊進入", key="tile_add", use_container_width=True):
             st.session_state.current_page = 'add_document'
             st.rerun()
     
     with col2:
-        if st.button("🔍\n\n查詢公文\n\n搜尋與查看歷史紀錄", key="tile_search", use_container_width=True, height=150):
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
+                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
+                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-size: 48px;">🔍</div>
+            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">查詢公文</div>
+            <div style="font-size: 14px; color: #666;">搜尋與查看歷史紀錄</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("點擊進入", key="tile_search", use_container_width=True):
             st.session_state.current_page = 'search'
             st.rerun()
     
     col3, col4 = st.columns(2)
     
     with col3:
-        track_label = f"⏰\n\n追蹤回覆\n\n"
+        track_label = "查看待回覆公文"
         if urgent_count > 0:
-            track_label += f"⚠️ {urgent_count} 筆需追蹤"
-        else:
-            track_label += "查看待回覆公文"
+            track_label = f"⚠️ {urgent_count} 筆需追蹤"
         
-        if st.button(track_label, key="tile_track", use_container_width=True, height=150):
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
+                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
+                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-size: 48px;">⏰</div>
+            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">追蹤回覆</div>
+            <div style="font-size: 14px; color: #666;">{track_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("點擊進入", key="tile_track", use_container_width=True):
             st.session_state.current_page = 'tracking'
             st.rerun()
     
     with col4:
-        ocr_label = f"📝\n\n處理辨識\n\n"
+        ocr_label = "進行文字辨識"
         if ocr_pending > 0:
-            ocr_label += f"⏳ {ocr_pending} 筆待辨識"
-        else:
-            ocr_label += "進行文字辨識"
+            ocr_label = f"⏳ {ocr_pending} 筆待辨識"
         
-        if st.button(ocr_label, key="tile_ocr", use_container_width=True, height=150):
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
+                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
+                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-size: 48px;">📝</div>
+            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">處理辨識</div>
+            <div style="font-size: 14px; color: #666;">{ocr_label}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("點擊進入", key="tile_ocr", use_container_width=True):
             st.session_state.current_page = 'ocr'
             st.rerun()
     
     # 管理員磚塊
     if is_admin():
-        st.markdown("")
-        if st.button("📊\n\n系統管理\n\n使用者與系統設定", key="tile_admin", use_container_width=True, height=150):
+        st.markdown("""
+        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
+                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
+                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
+            <div style="font-size: 48px;">📊</div>
+            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">系統管理</div>
+            <div style="font-size: 14px; color: #666;">使用者與系統設定</div>
+        </div>
+        """, unsafe_allow_html=True)
+        if st.button("點擊進入", key="tile_admin", use_container_width=True):
             st.session_state.current_page = 'admin'
             st.rerun()
     
