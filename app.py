@@ -2,17 +2,17 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Team Document System",
-    page_icon="📄",
+    page_icon="🏢",  # 改用辦公大樓 icon
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
-# ===== 自訂 CSS 樣式 =====
+# ===== 自訂 CSS 樣式 (現代專業藍色系) =====
 st.markdown("""
 <style>
     /* 全域設定 */
     .main {
-        background-color: #F5F1E8;
+        background-color: #F0F2F6; /* 淺灰藍背景 */
     }
     
     /* 隱藏 Streamlit 預設元素 */
@@ -22,22 +22,22 @@ st.markdown("""
     /* 卡片樣式 */
     .custom-card {
         background: #FFFFFF;
-        border: 1px solid #E8DCC8;
+        border: 1px solid #E0E4E8;
         border-radius: 12px;
         padding: 24px;
-        box-shadow: 0 2px 8px rgba(139, 115, 85, 0.08);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
         margin-bottom: 20px;
         transition: all 0.3s ease;
     }
     
     .custom-card:hover {
-        box-shadow: 0 4px 16px rgba(139, 115, 85, 0.12);
+        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
         transform: translateY(-2px);
     }
     
     /* 功能磚塊 */
     .feature-tile {
-        background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%);
+        background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 100%);
         border-radius: 16px;
         padding: 32px;
         text-align: center;
@@ -48,51 +48,56 @@ st.markdown("""
         justify-content: center;
         align-items: center;
         transition: all 0.3s ease;
-        border: 2px solid transparent;
+        border: 2px solid #EEF2F5;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
     }
     
     .feature-tile:hover {
-        background: linear-gradient(135deg, #E8DCC8 0%, #C9B8A0 100%);
-        border-color: #8B7355;
+        background: linear-gradient(135deg, #FFFFFF 0%, #E3F2FD 100%); /* Hover 時變淡藍色 */
+        border-color: #3498DB;
+        box-shadow: 0 6px 12px rgba(52, 152, 219, 0.15);
+        transform: translateY(-4px);
     }
     
     .feature-icon {
         font-size: 48px;
         margin-bottom: 12px;
+        color: #2C3E50;
     }
     
     .feature-title {
         font-size: 20px;
         font-weight: 600;
-        color: #3E3E3E;
+        color: #2C3E50;
         margin-bottom: 8px;
     }
     
     .feature-desc {
         font-size: 14px;
-        color: #666;
+        color: #7F8C8D;
     }
     
     /* 警示卡片 */
     .alert-card {
-        background: #FFF3F3;
-        border-left: 4px solid #C97676;
+        background: #FEF2F2;
+        border-left: 4px solid #EF4444;
         border-radius: 8px;
         padding: 16px;
         margin-bottom: 12px;
+        box-shadow: 0 2px 4px rgba(239, 68, 68, 0.05);
     }
     
     .alert-card-warning {
-        background: #FFFEF3;
-        border-left: 4px solid #D4A574;
+        background: #FFFBEB;
+        border-left: 4px solid #F59E0B;
         border-radius: 8px;
         padding: 16px;
         margin-bottom: 12px;
     }
     
     .alert-card-success {
-        background: #F3FFF5;
-        border-left: 4px solid #7FA881;
+        background: #ECFDF5;
+        border-left: 4px solid #10B981;
         border-radius: 8px;
         padding: 16px;
         margin-bottom: 12px;
@@ -104,88 +109,108 @@ st.markdown("""
         border-radius: 12px;
         padding: 20px;
         text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        border: 1px solid #E0E4E8;
     }
     
     .stat-number {
         font-size: 36px;
         font-weight: 700;
-        color: #8B7355;
+        color: #2C3E50;
         margin: 8px 0;
     }
     
     .stat-label {
         font-size: 14px;
-        color: #666;
+        color: #7F8C8D;
     }
     
     .stat-delta {
         font-size: 12px;
-        color: #C97676;
+        color: #EF4444;
         margin-top: 4px;
     }
     
-    /* Header */
+    /* Header - 專業深藍漸層 */
     .custom-header {
-        background: linear-gradient(90deg, #8B7355 0%, #C9B8A0 100%);
-        padding: 20px 30px;
-        border-radius: 10px;
-        margin-bottom: 20px;
+        background: linear-gradient(90deg, #1A2533 0%, #2C3E50 100%);
+        padding: 24px 30px;
+        border-radius: 12px;
+        margin-bottom: 24px;
         display: flex;
         align-items: center;
         color: white;
+        box-shadow: 0 4px 12px rgba(44, 62, 80, 0.2);
     }
     
-    /* 按鈕樣式 */
+    /* 按鈕樣式 - 藍色系 */
     .stButton > button {
-        background: #8B7355;
+        background: #34495E;
         color: white;
         border: none;
         border-radius: 8px;
-        padding: 8px 16px;
+        padding: 8px 20px;
+        font-weight: 500;
         transition: all 0.3s ease;
+        border: 1px solid transparent;
     }
     
     .stButton > button:hover {
-        background: #6F5D45;
-        box-shadow: 0 4px 12px rgba(139, 115, 85, 0.3);
+        background: #2C3E50;
+        box-shadow: 0 4px 12px rgba(52, 73, 94, 0.3);
+        transform: translateY(-1px);
+    }
+    
+    /* Primary 按鈕特別樣式 */
+    button[type="primary"] {
+        background: linear-gradient(90deg, #3498DB 0%, #2980B9 100%);
     }
     
     /* Expander */
     .streamlit-expanderHeader {
-        background: #F5F1E8;
+        background: #FFFFFF;
         border-radius: 8px;
+        border: 1px solid #E0E4E8;
     }
     
     /* 輸入框 */
     .stTextInput > div > div > input {
-        border-color: #E8DCC8;
+        border-color: #CBD5E1;
         border-radius: 8px;
+        background-color: #FFFFFF;
     }
     
     .stTextInput > div > div > input:focus {
-        border-color: #8B7355;
-        box-shadow: 0 0 0 1px #8B7355;
+        border-color: #3498DB;
+        box-shadow: 0 0 0 2px rgba(52, 152, 219, 0.2);
     }
     
     /* 選擇框 */
     .stSelectbox > div > div {
-        border-color: #E8DCC8;
+        border-color: #CBD5E1;
         border-radius: 8px;
     }
     
     /* Metric 樣式優化 */
     [data-testid="stMetricValue"] {
-        color: #8B7355;
+        color: #1A5F7A; /* 深藍色數字 */
         font-size: 28px;
+        font-weight: 700;
     }
     
     [data-testid="stMetricLabel"] {
-        color: #666;
+        color: #64748B;
     }
     
     [data-testid="stMetricDelta"] {
-        color: #C97676;
+        color: #EF4444;
+    }
+    
+    /* 表格樣式優化 */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #E0E4E8;
+        border-radius: 8px;
+        overflow: hidden;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -488,6 +513,19 @@ def soft_delete_document(docs_sheet, deleted_sheet, doc_id, deleted_by):
         st.error(f"刪除公文失敗: {str(e)}")
         return False
 
+def get_deleted_documents(worksheet):
+    """從工作表讀取刪除紀錄"""
+    try:
+        values = worksheet.get_all_values()
+        if not values or len(values) <= 1:
+            return pd.DataFrame()
+        headers = values[0]
+        data = values[1:]
+        return pd.DataFrame(data, columns=headers)
+    except Exception as e:
+        st.error(f"讀取刪除紀錄失敗: {str(e)}")
+        return pd.DataFrame()
+
 # ===== Google Drive 操作 =====
 def get_or_create_subfolder(drive_service, parent_folder_id, folder_name):
     """在指定資料夾內取得或建立子資料夾"""
@@ -710,13 +748,6 @@ def filter_recent_documents(df, months=3):
 def ocr_pdf_from_drive(drive_service, file_id):
     """
     從 Google Drive 下載 PDF 並進行 OCR 辨識
-    
-    參數:
-        drive_service: Google Drive API service
-        file_id: PDF 在 Drive 中的 ID
-    
-    回傳:
-        辨識的文字內容 (string) 或 None (失敗)
     """
     try:
         # 檢查是否有 Google Cloud Vision API 設定
@@ -788,12 +819,6 @@ def ocr_pdf_from_drive(drive_service, file_id):
 def generate_conversation_summary_prompt(conversation_data):
     """
     建立對話串摘要的 Prompt
-    
-    參數:
-        conversation_data: 對話串資料列表
-    
-    回傳:
-        格式化的 prompt 文字
     """
     prompt = "請以繁體中文分析以下政府公文對話串，提供結構化摘要：\n\n"
     
@@ -841,13 +866,6 @@ def generate_conversation_summary_prompt(conversation_data):
 def get_ai_summary(conversation_ids_tuple, conversation_data):
     """
     使用 Gemini API 產生對話串摘要
-    
-    參數:
-        conversation_ids_tuple: 對話串 ID 的 tuple (用於快取)
-        conversation_data: 對話串資料列表
-    
-    回傳:
-        摘要文字 或 None
     """
     try:
         # 檢查是否有 Gemini API Key
@@ -891,12 +909,6 @@ def get_ai_summary(conversation_ids_tuple, conversation_data):
 def update_ocr_result(worksheet, doc_id, ocr_text, status="completed"):
     """
     更新 OCR 辨識結果到 Google Sheets
-    
-    參數:
-        worksheet: Google Sheets 工作表
-        doc_id: 公文字號
-        ocr_text: 辨識的文字
-        status: 辨識狀態 (completed/failed)
     """
     try:
         # 找到該公文的行號
@@ -930,14 +942,6 @@ def update_ocr_result(worksheet, doc_id, ocr_text, status="completed"):
 def process_pending_ocr(docs_sheet, drive_service, limit=1):
     """
     處理待辨識的公文 (背景辨識)
-    
-    參數:
-        docs_sheet: Google Sheets 工作表
-        drive_service: Google Drive API service
-        limit: 一次處理幾筆 (預設 1)
-    
-    回傳:
-        處理的數量
     """
     try:
         df = get_all_documents(docs_sheet)
@@ -1185,21 +1189,6 @@ def display_pdf_from_bytes(pdf_bytes, watermark_text=None):
 def check_reply_status(df, doc_id, doc_type, doc_date):
     """
     檢查公文是否已有回覆
-    
-    參數:
-        df: 所有公文的 DataFrame
-        doc_id: 公文字號
-        doc_type: 公文類型
-        doc_date: 發文日期
-    
-    回傳:
-        {
-            'has_reply': True/False,
-            'days_waiting': 10,
-            'need_tracking': True/False,
-            'reply_count': 2,
-            'latest_reply_date': '2024-12-15'
-        }
     """
     # 只檢查我方發出的公文
     if doc_type not in ['發文', '函']:
@@ -1239,12 +1228,6 @@ def check_reply_status(df, doc_id, doc_type, doc_date):
 def get_pending_replies(df):
     """
     取得所有待回覆的公文
-    
-    回傳:
-        {
-            'urgent': [...]  # 超過 7 天的公文
-            'normal': [...]  # 7 天內的公文
-        }
     """
     pending = {
         'urgent': [],
@@ -1281,14 +1264,25 @@ def get_pending_replies(df):
         print(f"取得待回覆公文失敗: {str(e)}")
     
     return pending
+
 def login_page(users_sheet):
     """顯示登入頁面"""
-    st.title("🔐 系統登入")
-    st.markdown("---")
+    st.markdown(
+        """
+        <div style="text-align: center; padding: 40px 0;">
+            <h1 style="color: #2C3E50;">🔐 系統登入</h1>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
     
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
+        st.markdown("""
+        <div class="custom-card">
+        """, unsafe_allow_html=True)
+        
         st.subheader("請輸入帳號密碼")
         
         username = st.text_input("👤 帳號", key="login_username")
@@ -1312,7 +1306,8 @@ def login_page(users_sheet):
         
         st.markdown("---")
         st.caption("預設管理員帳號：admin / admin123")
-        st.caption("⚠️ 請登入後立即修改預設密碼")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # ===== 使用者管理頁面 =====
 def user_management_page(users_sheet):
@@ -1622,7 +1617,7 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
         st.markdown(
             f"""
             <div class="alert-card">
-                <h3 style="margin: 0 0 12px 0; color: #C97676;">⚠️ 緊急提醒：{urgent_count} 筆公文超過 7 天未回覆</h3>
+                <h3 style="margin: 0 0 12px 0; color: #EF4444;">⚠️ 緊急提醒：{urgent_count} 筆公文超過 7 天未回覆</h3>
             """,
             unsafe_allow_html=True
         )
@@ -1631,9 +1626,9 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
         for doc in pending_replies['urgent'][:3]:
             st.markdown(
                 f"""
-                <div style="padding: 8px 0; border-bottom: 1px solid #FFE0E0;">
+                <div style="padding: 8px 0; border-bottom: 1px solid #FECACA;">
                     🔴 <strong>{doc['id']}</strong> | {doc['agency']} | 
-                    <span style="color: #C97676; font-weight: 600;">{doc['days_waiting']} 天未回覆</span>
+                    <span style="color: #EF4444; font-weight: 600;">{doc['days_waiting']} 天未回覆</span>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -1653,14 +1648,13 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
     
     col1, col2 = st.columns(2)
     
+    # 注意: 這裡的 style 已經更新為新的 CSS class，不需要 inline style
     with col1:
         st.markdown("""
-        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
-                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
-                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-size: 48px;">➕</div>
-            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">新增公文</div>
-            <div style="font-size: 14px; color: #666;">上傳 PDF 建立新案件</div>
+        <div class="feature-tile">
+            <div class="feature-icon">➕</div>
+            <div class="feature-title">新增公文</div>
+            <div class="feature-desc">上傳 PDF 建立新案件</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("點擊進入", key="tile_add", use_container_width=True):
@@ -1669,12 +1663,10 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
     
     with col2:
         st.markdown("""
-        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
-                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
-                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-size: 48px;">🔍</div>
-            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">查詢公文</div>
-            <div style="font-size: 14px; color: #666;">搜尋與查看歷史紀錄</div>
+        <div class="feature-tile">
+            <div class="feature-icon">🔍</div>
+            <div class="feature-title">查詢公文</div>
+            <div class="feature-desc">搜尋與查看歷史紀錄</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("點擊進入", key="tile_search", use_container_width=True):
@@ -1689,12 +1681,10 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
             track_label = f"⚠️ {urgent_count} 筆需追蹤"
         
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
-                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
-                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-size: 48px;">⏰</div>
-            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">追蹤回覆</div>
-            <div style="font-size: 14px; color: #666;">{track_label}</div>
+        <div class="feature-tile">
+            <div class="feature-icon">⏰</div>
+            <div class="feature-title">追蹤回覆</div>
+            <div class="feature-desc">{track_label}</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("點擊進入", key="tile_track", use_container_width=True):
@@ -1707,12 +1697,10 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
             ocr_label = f"⏳ {ocr_pending} 筆待辨識"
         
         st.markdown(f"""
-        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
-                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
-                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-size: 48px;">📝</div>
-            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">處理辨識</div>
-            <div style="font-size: 14px; color: #666;">{ocr_label}</div>
+        <div class="feature-tile">
+            <div class="feature-icon">📝</div>
+            <div class="feature-title">處理辨識</div>
+            <div class="feature-desc">{ocr_label}</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("點擊進入", key="tile_ocr", use_container_width=True):
@@ -1722,12 +1710,10 @@ def show_home_page(docs_sheet, drive_service, deleted_folder_id):
     # 管理員磚塊
     if is_admin():
         st.markdown("""
-        <div style="background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%); 
-                    border-radius: 16px; padding: 40px; text-align: center; margin-bottom: 20px;
-                    min-height: 180px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-size: 48px;">📊</div>
-            <div style="font-size: 20px; font-weight: 600; margin: 12px 0;">系統管理</div>
-            <div style="font-size: 14px; color: #666;">使用者與系統設定</div>
+        <div class="feature-tile">
+            <div class="feature-icon">📊</div>
+            <div class="feature-title">系統管理</div>
+            <div class="feature-desc">使用者與系統設定</div>
         </div>
         """, unsafe_allow_html=True)
         if st.button("點擊進入", key="tile_admin", use_container_width=True):
@@ -1791,9 +1777,9 @@ def show_tracking_page(docs_sheet):
             st.markdown(
                 f"""
                 <div class="alert-card">
-                    <h4 style="margin: 0; color: #C97676;">🔴 {doc['id']}</h4>
+                    <h4 style="margin: 0; color: #EF4444;">🔴 {doc['id']}</h4>
                     <p style="margin: 8px 0 0 0;">
-                        📅 發文日期: {doc['date']} | ⏰ 已等待: <strong style="color: #C97676;">{doc['days_waiting']} 天</strong><br>
+                        📅 發文日期: {doc['date']} | ⏰ 已等待: <strong style="color: #EF4444;">{doc['days_waiting']} 天</strong><br>
                         🏢 機關: {doc['agency']}<br>
                         📝 主旨: {doc['subject']}<br>
                         👤 建立者: {doc['created_by']}
@@ -2426,8 +2412,6 @@ def show_admin_page(docs_sheet, deleted_sheet, users_sheet):
             )
             
             st.caption(f"共 {len(deleted_df)} 筆刪除紀錄")
-
-# ===== 以下是舊版 tabs 介面 (備用) =====
 
 if __name__ == "__main__":
     main()
