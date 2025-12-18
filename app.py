@@ -1,8 +1,9 @@
-"""政府公文追蹤系統 - 主程式 (修正版 v2.1.1)"""
+"""政府公文追蹤系統 - 主程式 (修正版 v2.1.2)"""
 import sys
 import os
 
 # 1. 路徑防呆：確保專案根目錄在 sys.path 中
+# 這能解決 "ModuleNotFoundError: No module named 'src'" 的問題
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
@@ -37,10 +38,12 @@ st.set_page_config(
 
 def initialize_repositories():
     """初始化所有 Repository"""
+    # 載入設定
     sheets_config = Settings.load_google_sheets_config()
     drive_config = Settings.load_google_drive_config()
     credentials = Settings.load_gcp_credentials().credentials_dict
     
+    # 初始化 Repositories
     doc_repo = DocumentRepository(sheets_config, credentials)
     user_repo = UserRepository(sheets_config, credentials)
     deleted_repo = DeletedDocumentRepository(sheets_config, credentials)
@@ -86,48 +89,61 @@ def render_sidebar(auth_service):
 def main():
     """主程式"""
     try:
+        # 初始化 Repositories
         doc_repo, user_repo, deleted_repo, drive_repo = initialize_repositories()
+        
+        # 初始化 Auth Service
         auth_service = AuthService(user_repo)
         
+        # 檢查是否已登入
         if not auth_service.is_authenticated():
             auth_service.render_login_page()
             return
         
+        # 套用全域樣式
         st.markdown(Theme.get_global_css(), unsafe_allow_html=True)
+        
+        # 渲染側邊欄
         render_sidebar(auth_service)
         
+        # Header
         st.markdown("# 📋 政府公文追蹤系統")
-        st.caption("v2.1.1 - 穩定修正版")
+        st.caption("v2.1.2 - Fixed HomePage Init")
         st.markdown("---")
         
+        # 路由 - 根據 current_page 顯示不同頁面
         current_page = st.session_state.get(
             UIConstants.SESSION_CURRENT_PAGE,
             UIConstants.PAGE_HOME
         )
         
-        # 路由邏輯修正
         if current_page == UIConstants.PAGE_HOME:
-            # 修正處：HomePage 內部會自己初始化 TrackingService，只需要傳入 doc_repo
+            # 首頁 - 【重要修正】只傳入 doc_repo，移除 tracking_service
             HomePage(doc_repo).render()
-            
+        
         elif current_page == UIConstants.PAGE_ADD_DOCUMENT:
+            # 新增公文
             AddDocumentPage(DocumentService(doc_repo)).render()
-            
+        
         elif current_page == UIConstants.PAGE_SEARCH:
+            # 查詢公文
             SearchPage(DocumentService(doc_repo)).render()
-            
+        
         elif current_page == UIConstants.PAGE_TRACKING:
+            # 追蹤回覆
             TrackingPage(TrackingService(doc_repo)).render()
-            
+        
         elif current_page == UIConstants.PAGE_OCR:
+            # OCR 處理
             OCRPage().render()
-            
+        
         elif current_page == UIConstants.PAGE_ADMIN:
+            # 系統管理
             AdminPage(auth_service, user_repo).render()
     
     except Exception as e:
         st.error(f"❌ 系統錯誤: {str(e)}")
-        # 在開發階段印出詳細錯誤，方便 Debug
+        # 在開發階段顯示詳細錯誤，方便除錯
         import traceback
         st.code(traceback.format_exc())
 
