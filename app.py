@@ -863,9 +863,9 @@ def get_ai_summary(conversation_ids_tuple, conversation_data):
         # 建立 prompt
         prompt = generate_conversation_summary_prompt(conversation_data)
         
-        # 呼叫 API
+        # 呼叫 API - 使用最新的 Gemini 3.0
         response = client.models.generate_content(
-            model='gemini-2.0-flash-exp',
+            model='gemini-3.0-flash-preview',  # Gemini 3.0 最新模型
             contents=prompt
         )
         
@@ -876,6 +876,16 @@ def get_ai_summary(conversation_ids_tuple, conversation_data):
         
     except Exception as e:
         print(f"AI 摘要失敗: {str(e)}")
+        # 如果 Gemini 3.0 失敗，嘗試降級到 2.0
+        try:
+            response = client.models.generate_content(
+                model='gemini-2.0-flash-exp',
+                contents=prompt
+            )
+            if response and response.text:
+                return response.text
+        except:
+            pass
         return None
 
 def update_ocr_result(worksheet, doc_id, ocr_text, status="completed"):
