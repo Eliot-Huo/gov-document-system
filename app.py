@@ -854,19 +854,20 @@ def get_ai_summary(conversation_ids_tuple, conversation_data):
         if 'GOOGLE_GEMINI_API_KEY' not in st.secrets:
             return None
         
-        import google.generativeai as genai
+        from google import genai
+        from google.genai import types
         
-        # 設定 API Key
-        genai.configure(api_key=st.secrets['GOOGLE_GEMINI_API_KEY'])
-        
-        # 建立模型
-        model = genai.GenerativeModel('gemini-pro')
+        # 建立客戶端
+        client = genai.Client(api_key=st.secrets['GOOGLE_GEMINI_API_KEY'])
         
         # 建立 prompt
         prompt = generate_conversation_summary_prompt(conversation_data)
         
         # 呼叫 API
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=prompt
+        )
         
         if response and response.text:
             return response.text
