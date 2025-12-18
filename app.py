@@ -4,8 +4,191 @@ st.set_page_config(
     page_title="Team Document System",
     page_icon="📄",
     layout="wide",
-    initial_sidebar_state="collapsed"  # 初始時收起側邊欄,加快載入
+    initial_sidebar_state="collapsed"
 )
+
+# ===== 自訂 CSS 樣式 =====
+st.markdown("""
+<style>
+    /* 全域設定 */
+    .main {
+        background-color: #F5F1E8;
+    }
+    
+    /* 隱藏 Streamlit 預設元素 */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* 卡片樣式 */
+    .custom-card {
+        background: #FFFFFF;
+        border: 1px solid #E8DCC8;
+        border-radius: 12px;
+        padding: 24px;
+        box-shadow: 0 2px 8px rgba(139, 115, 85, 0.08);
+        margin-bottom: 20px;
+        transition: all 0.3s ease;
+    }
+    
+    .custom-card:hover {
+        box-shadow: 0 4px 16px rgba(139, 115, 85, 0.12);
+        transform: translateY(-2px);
+    }
+    
+    /* 功能磚塊 */
+    .feature-tile {
+        background: linear-gradient(135deg, #F5F1E8 0%, #E8DCC8 100%);
+        border-radius: 16px;
+        padding: 32px;
+        text-align: center;
+        cursor: pointer;
+        min-height: 180px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        transition: all 0.3s ease;
+        border: 2px solid transparent;
+    }
+    
+    .feature-tile:hover {
+        background: linear-gradient(135deg, #E8DCC8 0%, #C9B8A0 100%);
+        border-color: #8B7355;
+    }
+    
+    .feature-icon {
+        font-size: 48px;
+        margin-bottom: 12px;
+    }
+    
+    .feature-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #3E3E3E;
+        margin-bottom: 8px;
+    }
+    
+    .feature-desc {
+        font-size: 14px;
+        color: #666;
+    }
+    
+    /* 警示卡片 */
+    .alert-card {
+        background: #FFF3F3;
+        border-left: 4px solid #C97676;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    
+    .alert-card-warning {
+        background: #FFFEF3;
+        border-left: 4px solid #D4A574;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    
+    .alert-card-success {
+        background: #F3FFF5;
+        border-left: 4px solid #7FA881;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+    
+    /* 統計卡片 */
+    .stat-card {
+        background: white;
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    
+    .stat-number {
+        font-size: 36px;
+        font-weight: 700;
+        color: #8B7355;
+        margin: 8px 0;
+    }
+    
+    .stat-label {
+        font-size: 14px;
+        color: #666;
+    }
+    
+    .stat-delta {
+        font-size: 12px;
+        color: #C97676;
+        margin-top: 4px;
+    }
+    
+    /* Header */
+    .custom-header {
+        background: linear-gradient(90deg, #8B7355 0%, #C9B8A0 100%);
+        padding: 20px 30px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        color: white;
+    }
+    
+    /* 按鈕樣式 */
+    .stButton > button {
+        background: #8B7355;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 16px;
+        transition: all 0.3s ease;
+    }
+    
+    .stButton > button:hover {
+        background: #6F5D45;
+        box-shadow: 0 4px 12px rgba(139, 115, 85, 0.3);
+    }
+    
+    /* Expander */
+    .streamlit-expanderHeader {
+        background: #F5F1E8;
+        border-radius: 8px;
+    }
+    
+    /* 輸入框 */
+    .stTextInput > div > div > input {
+        border-color: #E8DCC8;
+        border-radius: 8px;
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #8B7355;
+        box-shadow: 0 0 0 1px #8B7355;
+    }
+    
+    /* 選擇框 */
+    .stSelectbox > div > div {
+        border-color: #E8DCC8;
+        border-radius: 8px;
+    }
+    
+    /* Metric 樣式優化 */
+    [data-testid="stMetricValue"] {
+        color: #8B7355;
+        font-size: 28px;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        color: #666;
+    }
+    
+    [data-testid="stMetricDelta"] {
+        color: #C97676;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -854,7 +1037,106 @@ def display_pdf_from_bytes(pdf_bytes, watermark_text=None):
     except Exception as e:
         st.error(f"處理 PDF 失敗: {str(e)}")
 
-# ===== 登入頁面 =====
+# ===== 追蹤回覆相關函數 =====
+def check_reply_status(df, doc_id, doc_type, doc_date):
+    """
+    檢查公文是否已有回覆
+    
+    參數:
+        df: 所有公文的 DataFrame
+        doc_id: 公文字號
+        doc_type: 公文類型
+        doc_date: 發文日期
+    
+    回傳:
+        {
+            'has_reply': True/False,
+            'days_waiting': 10,
+            'need_tracking': True/False,
+            'reply_count': 2,
+            'latest_reply_date': '2024-12-15'
+        }
+    """
+    # 只檢查我方發出的公文
+    if doc_type not in ['發文', '函']:
+        return None
+    
+    try:
+        # 檢查是否有子公文 (回覆)
+        replies = df[df['Parent_ID'] == doc_id]
+        
+        # 計算等待天數
+        from datetime import datetime
+        doc_date_obj = datetime.strptime(doc_date, '%Y-%m-%d')
+        today = datetime.now()
+        days_waiting = (today - doc_date_obj).days
+        
+        # 檢查是否有政府回文
+        gov_replies = replies[replies['Type'] == '收文']
+        
+        result = {
+            'has_reply': len(gov_replies) > 0,
+            'days_waiting': days_waiting,
+            'need_tracking': days_waiting > 7 and len(gov_replies) == 0,
+            'reply_count': len(replies),
+            'latest_reply_date': None
+        }
+        
+        if len(gov_replies) > 0:
+            # 找最新的回覆日期
+            latest_reply = gov_replies.sort_values('Date', ascending=False).iloc[0]
+            result['latest_reply_date'] = latest_reply['Date']
+        
+        return result
+    except Exception as e:
+        print(f"檢查回覆狀態失敗: {str(e)}")
+        return None
+
+def get_pending_replies(df):
+    """
+    取得所有待回覆的公文
+    
+    回傳:
+        {
+            'urgent': [...]  # 超過 7 天的公文
+            'normal': [...]  # 7 天內的公文
+        }
+    """
+    pending = {
+        'urgent': [],
+        'normal': []
+    }
+    
+    try:
+        # 只檢查我方發出的公文
+        our_docs = df[df['Type'].isin(['發文', '函'])]
+        
+        for _, doc in our_docs.iterrows():
+            status = check_reply_status(df, doc['ID'], doc['Type'], doc['Date'])
+            
+            if status and not status['has_reply']:
+                doc_info = {
+                    'id': doc['ID'],
+                    'date': doc['Date'],
+                    'agency': doc['Agency'],
+                    'subject': doc['Subject'],
+                    'days_waiting': status['days_waiting'],
+                    'created_by': doc.get('Created_By', '未知')
+                }
+                
+                if status['need_tracking']:
+                    pending['urgent'].append(doc_info)
+                else:
+                    pending['normal'].append(doc_info)
+        
+        # 依天數排序 (從多到少)
+        pending['urgent'].sort(key=lambda x: x['days_waiting'], reverse=True)
+        pending['normal'].sort(key=lambda x: x['days_waiting'], reverse=True)
+        
+    except Exception as e:
+        print(f"取得待回覆公文失敗: {str(e)}")
+    
+    return pending
 def login_page(users_sheet):
     """顯示登入頁面"""
     st.title("🔐 系統登入")
@@ -1049,77 +1331,454 @@ def main():
     
     # ===== 已登入的主介面 =====
     
-    # 側邊欄
+    # 初始化頁面狀態
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = 'home'
+    
+    # 側邊欄 (簡化版)
     with st.sidebar:
         st.markdown(f"### 👤 {st.session_state.user['display_name']}")
         st.caption(f"角色：{'管理員' if is_admin() else '一般使用者'}")
         
-        if st.button("🚪 登出", width="stretch"):
+        if st.button("🚪 登出", key="logout_btn"):
             st.session_state.logged_in = False
             st.session_state.user = None
             st.rerun()
         
         st.markdown("---")
         
-        st.header("⚙️ 系統設定")
+        # 快速導航
+        st.markdown("### 📌 快速導航")
+        if st.button("🏠 首頁", key="nav_home", use_container_width=True):
+            st.session_state.current_page = 'home'
+            st.rerun()
         
-        if not folder_id:
-            st.warning("⚠️ 請在 Secrets 設定 DRIVE_FOLDER_ID")
-        else:
-            st.success("✅ 資料夾已設定")
-            st.caption("刪除的檔案會自動移到「已刪除公文」子資料夾")
+        if st.button("⏰ 追蹤回覆", key="nav_track", use_container_width=True):
+            st.session_state.current_page = 'tracking'
+            st.rerun()
+        
+        if st.button("📝 處理辨識", key="nav_ocr", use_container_width=True):
+            st.session_state.current_page = 'ocr'
+            st.rerun()
         
         st.markdown("---")
         
-        # OCR 背景辨識
-        st.header("📝 文字辨識")
+        if st.button("📋 完整功能 (舊版)", key="nav_old", use_container_width=True):
+            st.session_state.current_page = 'old_interface'
+            st.rerun()
         
-        # 檢查待辨識數量
-        df = get_all_documents(docs_sheet)
-        if 'OCR_Status' in df.columns:
-            pending_count = len(df[df['OCR_Status'] == 'pending'])
-            if pending_count > 0:
-                st.info(f"⏳ {pending_count} 份公文待辨識")
-                
-                if st.button("🔄 處理待辨識公文", width="stretch"):
-                    with st.spinner("辨識中..."):
-                        processed = process_pending_ocr(docs_sheet, drive_service, limit=1)
-                        if processed > 0:
-                            st.success(f"✅ 已辨識 {processed} 份公文")
-                            st.rerun()
-                        else:
-                            st.warning("沒有可辨識的公文")
-            else:
-                st.success("✅ 所有公文已辨識")
+        st.caption("💡 新增/查詢公文等功能")
+        
+        if is_admin():
+            st.markdown("---")
+            if st.button("👥 使用者管理", key="nav_users", use_container_width=True):
+                st.session_state.current_page = 'old_interface'
+                st.rerun()
     
-    # 主畫面 - Logo 和標題橫幅
+    # Header
     try:
-        # 嘗試讀取 Logo 檔案
         with open("logo.png", "rb") as f:
             logo_bytes = f.read()
         logo_base64 = base64.b64encode(logo_bytes).decode()
-        logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="height: 60px; margin-right: 20px; vertical-align: middle;">'
+        logo_html = f'<img src="data:image/png;base64,{logo_base64}" style="height: 60px; margin-right: 20px;">'
     except:
-        # 如果找不到檔案,使用預設圖示
-        logo_html = '<span style="font-size: 48px; margin-right: 20px; vertical-align: middle;">🏢</span>'
+        logo_html = '<span style="font-size: 48px; margin-right: 20px;">🏢</span>'
     
-    # 完整橫幅
     st.markdown(
         f"""
-        <div style="background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%); 
-                    padding: 20px 30px; 
-                    border-radius: 10px; 
-                    margin-bottom: 20px;
-                    display: flex;
-                    align-items: center;">
+        <div class="custom-header">
             {logo_html}
-            <h1 style="color: white; margin: 0; font-size: 2.5rem;">團隊版政府公文追蹤系統</h1>
+            <h1 style="margin: 0; font-size: 2rem;">團隊版政府公文追蹤系統</h1>
         </div>
         """,
         unsafe_allow_html=True
     )
     
+    # 根據 current_page 顯示不同頁面
+    if st.session_state.current_page == 'home':
+        show_home_page(docs_sheet, drive_service, deleted_folder_id)
+    
+    elif st.session_state.current_page == 'add_document':
+        show_add_document_page(docs_sheet, drive_service, folder_id)
+    
+    elif st.session_state.current_page == 'search':
+        show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id)
+    
+    elif st.session_state.current_page == 'tracking':
+        show_tracking_page(docs_sheet)
+    
+    elif st.session_state.current_page == 'ocr':
+        show_ocr_page(docs_sheet, drive_service)
+    
+    elif st.session_state.current_page == 'admin':
+        if is_admin():
+            show_admin_page(docs_sheet, deleted_sheet, users_sheet)
+        else:
+            st.error("❌ 您沒有權限訪問此頁面")
+    
+    else:
+        # 如果是其他頁面,顯示舊版介面
+        show_old_tabs_interface(docs_sheet, drive_service, folder_id, deleted_sheet, deleted_folder_id, users_sheet)
+
+# ===== 首頁 =====
+def show_home_page(docs_sheet, drive_service, deleted_folder_id):
+    """顯示首頁 - 儀表板 + 功能磚塊"""
+    
+    # 取得資料
+    df = get_all_documents(docs_sheet)
+    
+    # 計算統計數據
+    total_docs = len(df)
+    
+    # 待回覆統計
+    pending_replies = get_pending_replies(df)
+    urgent_count = len(pending_replies['urgent'])
+    normal_count = len(pending_replies['normal'])
+    total_pending = urgent_count + normal_count
+    
+    # 已完成統計
+    completed_count = total_docs - total_pending
+    
+    # OCR 待處理統計
+    if 'OCR_Status' in df.columns:
+        ocr_pending = len(df[df['OCR_Status'] == 'pending'])
+    else:
+        ocr_pending = 0
+    
+    # 統計卡片
+    st.markdown("### 📊 系統概覽")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric(
+            label="📚 總公文數",
+            value=total_docs
+        )
+    
+    with col2:
+        st.metric(
+            label="⏳ 待回覆",
+            value=total_pending,
+            delta=f"-{urgent_count} 筆超過7天" if urgent_count > 0 else "正常",
+            delta_color="inverse" if urgent_count > 0 else "off"
+        )
+    
+    with col3:
+        st.metric(
+            label="✅ 已完成",
+            value=completed_count
+        )
+    
+    with col4:
+        st.metric(
+            label="📝 待辨識",
+            value=ocr_pending
+        )
+    
     st.markdown("---")
+    
+    # 緊急警示 (如果有超過 7 天的公文)
+    if urgent_count > 0:
+        st.markdown(
+            f"""
+            <div class="alert-card">
+                <h3 style="margin: 0 0 12px 0; color: #C97676;">⚠️ 緊急提醒：{urgent_count} 筆公文超過 7 天未回覆</h3>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        # 顯示前 3 筆
+        for doc in pending_replies['urgent'][:3]:
+            st.markdown(
+                f"""
+                <div style="padding: 8px 0; border-bottom: 1px solid #FFE0E0;">
+                    🔴 <strong>{doc['id']}</strong> | {doc['agency']} | 
+                    <span style="color: #C97676; font-weight: 600;">{doc['days_waiting']} 天未回覆</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+        
+        col_alert1, col_alert2 = st.columns([1, 4])
+        with col_alert1:
+            if st.button("前往追蹤回覆專區 →", key="goto_tracking"):
+                st.session_state.current_page = 'tracking'
+                st.rerun()
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
+    
+    # 功能磚塊
+    st.markdown("### 🎯 快速功能")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("➕\n\n新增公文\n\n上傳 PDF 建立新案件", key="tile_add", use_container_width=True, height=150):
+            st.session_state.current_page = 'add_document'
+            st.rerun()
+    
+    with col2:
+        if st.button("🔍\n\n查詢公文\n\n搜尋與查看歷史紀錄", key="tile_search", use_container_width=True, height=150):
+            st.session_state.current_page = 'search'
+            st.rerun()
+    
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        track_label = f"⏰\n\n追蹤回覆\n\n"
+        if urgent_count > 0:
+            track_label += f"⚠️ {urgent_count} 筆需追蹤"
+        else:
+            track_label += "查看待回覆公文"
+        
+        if st.button(track_label, key="tile_track", use_container_width=True, height=150):
+            st.session_state.current_page = 'tracking'
+            st.rerun()
+    
+    with col4:
+        ocr_label = f"📝\n\n處理辨識\n\n"
+        if ocr_pending > 0:
+            ocr_label += f"⏳ {ocr_pending} 筆待辨識"
+        else:
+            ocr_label += "進行文字辨識"
+        
+        if st.button(ocr_label, key="tile_ocr", use_container_width=True, height=150):
+            st.session_state.current_page = 'ocr'
+            st.rerun()
+    
+    # 管理員磚塊
+    if is_admin():
+        st.markdown("")
+        if st.button("📊\n\n系統管理\n\n使用者與系統設定", key="tile_admin", use_container_width=True, height=150):
+            st.session_state.current_page = 'admin'
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # 舊版介面入口
+    st.markdown("### 🔧 其他功能")
+    if st.button("📋 使用完整功能介面 (舊版)", use_container_width=True):
+        st.session_state.current_page = 'old_interface'
+        st.rerun()
+    
+    st.caption("💡 新增公文、查詢公文等功能,請點擊上方按鈕使用舊版介面。明天將完成新版整合!")
+    
+    st.markdown("---")
+    
+    # 近期活動
+    st.markdown("### 📋 近期活動 (最新 5 筆)")
+    
+    if df.empty:
+        st.info("尚無公文資料")
+    else:
+        # 取最新 5 筆
+        recent_docs = df.sort_values('Created_At', ascending=False).head(5)
+        
+        for _, doc in recent_docs.iterrows():
+            icon = "📤" if doc['Type'] in ['發文', '函'] else "📥"
+            
+            col_doc1, col_doc2 = st.columns([5, 1])
+            with col_doc1:
+                st.markdown(
+                    f"{icon} **{doc['ID']}** | {doc['Date']} | {doc['Agency']} | {doc['Subject'][:40]}..."
+                )
+            with col_doc2:
+                if st.button("查看", key=f"view_recent_{doc['ID']}"):
+                    st.session_state.selected_doc_id = doc['ID']
+                    st.session_state.current_page = 'search'
+                    st.session_state.show_detail = True
+                    st.rerun()
+
+# ===== 追蹤回覆頁面 =====
+def show_tracking_page(docs_sheet):
+    """追蹤回覆專頁"""
+    
+    st.markdown("## ⏰ 追蹤回覆")
+    
+    df = get_all_documents(docs_sheet)
+    pending = get_pending_replies(df)
+    
+    # 統計卡片
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("📊 總計", len(pending['urgent']) + len(pending['normal']))
+    
+    with col2:
+        st.metric("⚠️ 需追蹤", len(pending['urgent']))
+    
+    with col3:
+        st.metric("🟡 等待中", len(pending['normal']))
+    
+    st.markdown("---")
+    
+    # 緊急追蹤區
+    if pending['urgent']:
+        st.markdown("### 🔴 緊急追蹤 (超過 7 天)")
+        
+        for doc in pending['urgent']:
+            st.markdown(
+                f"""
+                <div class="alert-card">
+                    <h4 style="margin: 0; color: #C97676;">🔴 {doc['id']}</h4>
+                    <p style="margin: 8px 0 0 0;">
+                        📅 發文日期: {doc['date']} | ⏰ 已等待: <strong style="color: #C97676;">{doc['days_waiting']} 天</strong><br>
+                        🏢 機關: {doc['agency']}<br>
+                        📝 主旨: {doc['subject']}<br>
+                        👤 建立者: {doc['created_by']}
+                    </p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            col_a, col_b = st.columns([1, 5])
+            with col_a:
+                if st.button("👁️ 查看詳情", key=f"view_urgent_{doc['id']}"):
+                    st.session_state.selected_doc_id = doc['id']
+                    st.session_state.current_page = 'search'
+                    st.session_state.show_detail = True
+                    st.rerun()
+            
+            st.markdown("")
+    else:
+        st.success("✅ 目前沒有超過 7 天未回覆的公文")
+    
+    st.markdown("---")
+    
+    # 正常等待區
+    if pending['normal']:
+        st.markdown("### 🟡 正常等待 (7 天內)")
+        
+        for doc in pending['normal']:
+            with st.expander(
+                f"🟡 {doc['id']} | {doc['agency']} | 已等待 {doc['days_waiting']} 天"
+            ):
+                st.markdown(f"**發文日期**: {doc['date']}")
+                st.markdown(f"**機關單位**: {doc['agency']}")
+                st.markdown(f"**主旨**: {doc['subject']}")
+                st.markdown(f"**建立者**: {doc['created_by']}")
+                
+                if st.button("👁️ 查看詳情", key=f"view_normal_{doc['id']}"):
+                    st.session_state.selected_doc_id = doc['id']
+                    st.session_state.current_page = 'search'
+                    st.session_state.show_detail = True
+                    st.rerun()
+
+# ===== OCR 處理頁面 =====
+def show_ocr_page(docs_sheet, drive_service):
+    """OCR 處理專頁"""
+    
+    st.markdown("## 📝 處理辨識")
+    
+    df = get_all_documents(docs_sheet)
+    
+    if 'OCR_Status' not in df.columns:
+        st.warning("系統尚未啟用 OCR 功能")
+        return
+    
+    # 統計
+    pending_df = df[df['OCR_Status'] == 'pending']
+    completed_df = df[df['OCR_Status'] == 'completed']
+    failed_df = df[df['OCR_Status'] == 'failed']
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("⏳ 待辨識", len(pending_df))
+    
+    with col2:
+        st.metric("✅ 已完成", len(completed_df))
+    
+    with col3:
+        st.metric("❌ 失敗", len(failed_df))
+    
+    st.markdown("---")
+    
+    # 待辨識列表
+    if not pending_df.empty:
+        st.markdown("### ⏳ 待辨識公文")
+        
+        for _, doc in pending_df.head(10).iterrows():
+            col_info, col_action = st.columns([4, 1])
+            
+            with col_info:
+                st.markdown(f"**{doc['ID']}** | {doc['Date']} | {doc['Agency']} | {doc['Subject'][:40]}...")
+            
+            with col_action:
+                if st.button("🔄 立即辨識", key=f"ocr_{doc['ID']}"):
+                    with st.spinner("辨識中..."):
+                        file_id = doc.get('Drive_File_ID')
+                        if file_id:
+                            ocr_result = ocr_pdf_from_drive(drive_service, file_id)
+                            if ocr_result:
+                                update_ocr_result(docs_sheet, doc['ID'], ocr_result, "completed")
+                                st.success("✅ 辨識完成！")
+                                st.rerun()
+                            else:
+                                update_ocr_result(docs_sheet, doc['ID'], None, "failed")
+                                st.error("❌ 辨識失敗")
+        
+        st.markdown("")
+        if st.button("🔄 批次處理 (前 5 筆)", type="primary"):
+            with st.spinner("批次辨識中..."):
+                processed = process_pending_ocr(docs_sheet, drive_service, limit=5)
+                st.success(f"✅ 已辨識 {processed} 份公文")
+                st.rerun()
+    else:
+        st.success("✅ 所有公文已辨識完成")
+    
+    st.markdown("---")
+    
+    # 失敗列表
+    if not failed_df.empty:
+        st.markdown("### ❌ 辨識失敗公文")
+        
+        for _, doc in failed_df.iterrows():
+            with st.expander(f"❌ {doc['ID']} | {doc['Agency']}"):
+                st.markdown(f"**日期**: {doc['Date']}")
+                st.markdown(f"**主旨**: {doc['Subject']}")
+                
+                if st.button("🔄 重新辨識", key=f"retry_{doc['ID']}"):
+                    with st.spinner("辨識中..."):
+                        file_id = doc.get('Drive_File_ID')
+                        if file_id:
+                            ocr_result = ocr_pdf_from_drive(drive_service, file_id)
+                            if ocr_result:
+                                update_ocr_result(docs_sheet, doc['ID'], ocr_result, "completed")
+                                st.success("✅ 辨識完成！")
+                                st.rerun()
+                            else:
+                                st.error("❌ 辨識仍然失敗，請檢查 PDF 品質")
+
+# ===== 新增公文頁面 (臨時 - 使用舊版) =====
+def show_add_document_page(docs_sheet, drive_service, folder_id):
+    """新增公文頁面 - 臨時使用簡化版"""
+    st.markdown("## ➕ 新增公文")
+    st.info("📝 新增公文功能將在明天的更新中完成整合")
+    st.markdown("請暫時使用側邊欄的「返回首頁」然後使用舊版功能")
+
+# ===== 查詢公文頁面 (臨時 - 使用舊版) =====  
+def show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id):
+    """查詢公文頁面 - 臨時使用簡化版"""
+    st.markdown("## 🔍 查詢公文")
+    st.info("📝 查詢公文功能將在明天的更新中完成整合")
+    st.markdown("請暫時使用側邊欄的「返回首頁」然後使用舊版功能")
+
+# ===== 系統管理頁面 (臨時 - 使用舊版) =====
+def show_admin_page(docs_sheet, deleted_sheet, users_sheet):
+    """系統管理頁面 - 臨時使用簡化版"""
+    st.markdown("## 📊 系統管理")
+    st.info("📝 系統管理功能將在明天的更新中完成整合")
+    st.markdown("請暫時使用側邊欄的「返回首頁」然後使用舊版功能")
+
+# ===== 以下是舊版 tabs 介面 (備用) =====
+def show_old_tabs_interface(docs_sheet, drive_service, folder_id, deleted_sheet, deleted_folder_id, users_sheet):
+    """舊版 tabs 介面 (暫時保留)"""
+    
+    st.markdown("---")
+    st.info("💡 提示:您也可以使用側邊欄導航到新版介面(首頁、追蹤回覆、OCR處理)")
     
     # 根據角色顯示不同頁籤
     if is_admin():
