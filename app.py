@@ -655,6 +655,36 @@ def build_conversation_tree(df):
     
     return tree_list
 
+def get_conversation_thread(df, root_id):
+    """取得特定公文的對話串"""
+    if df.empty:
+        return []
+    
+    # 建立 ID 對應的資料字典
+    doc_dict = {row['ID']: row for _, row in df.iterrows()}
+    
+    def build_thread_recursive(doc_id, level=0):
+        """遞迴建立對話串"""
+        result = []
+        if doc_id not in doc_dict:
+            return result
+        
+        doc = doc_dict[doc_id]
+        result.append({
+            'doc': doc,
+            'level': level,
+            'id': doc_id
+        })
+        
+        # 找出所有回覆此公文的子節點
+        children = df[df['Parent_ID'] == doc_id]
+        for _, child in children.iterrows():
+            result.extend(build_thread_recursive(child['ID'], level + 1))
+        
+        return result
+    
+    return build_thread_recursive(root_id)
+
 def filter_recent_documents(df, months=3):
     """篩選近 N 個月的公文"""
     if df.empty:
@@ -1412,7 +1442,7 @@ def main():
         show_add_document_page(docs_sheet, drive_service, folder_id)
     
     elif st.session_state.current_page == 'search':
-        show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id)
+        show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id, folder_id)
     
     elif st.session_state.current_page == 'tracking':
         show_tracking_page(docs_sheet)
@@ -2035,7 +2065,7 @@ def show_add_document_page(docs_sheet, drive_service, folder_id):
                     st.error("❌ 上傳失敗")
 
 # ===== 查詢公文頁面 =====  
-def show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id):
+def show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id, folder_id=None):
     """查詢公文頁面 - 完整版"""
     
     st.markdown("## 🔍 查詢公文")
