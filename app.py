@@ -2240,7 +2240,7 @@ def show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id
                 if st.button("🗑️ 確認刪除", type="secondary", key=f"delete_btn_{selected_id}"):
                     if confirm_text == selected_row['ID']:
                         # 執行刪除
-                        if move_to_deleted(docs_sheet, deleted_sheet, selected_row['ID']):
+                        if soft_delete_document(docs_sheet, deleted_sheet, selected_row['ID'], st.session_state.user['display_name']):
                             # 移動檔案到刪除資料夾
                             if file_id and deleted_folder_id:
                                 try:
