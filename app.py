@@ -784,99 +784,6 @@ def ocr_pdf_from_drive(drive_service, file_id):
         print(f"OCR 辨識失敗: {str(e)}")
         return None
 
-# ===== Gemini AI 摘要相關函數 =====
-def generate_conversation_summary_prompt(conversation_data):
-    """
-    建立對話串摘要的 Prompt
-    
-    參數:
-        conversation_data: 對話串資料列表
-    
-    回傳:
-        格式化的 prompt 文字
-    """
-    prompt = "請以繁體中文分析以下政府公文對話串，提供結構化摘要：\n\n"
-    
-    for idx, item in enumerate(conversation_data, 1):
-        doc = item['doc']
-        level = item['level']
-        indent = "  " * level
-        
-        prompt += f"{indent}[{idx}] {doc['Type']} - {doc['ID']}\n"
-        prompt += f"{indent}日期: {doc['Date']}\n"
-        prompt += f"{indent}機關: {doc['Agency']}\n"
-        prompt += f"{indent}主旨: {doc['Subject']}\n"
-        
-        # 如果有 OCR 文字，加入前 500 字
-        if 'OCR_Text' in doc and doc['OCR_Text']:
-            ocr_preview = doc['OCR_Text'][:500]
-            prompt += f"{indent}內容摘要: {ocr_preview}...\n"
-        
-        prompt += "\n"
-    
-    prompt += """
-請提供以下格式的摘要（用繁體中文）:
-
-📌 對話主題
-[用一句話說明這個對話串的核心議題]
-
-📊 往來狀況
-[總共幾筆公文，最早到最晚的時間範圍，涉及哪些機關]
-
-🔑 關鍵重點
-1. [第一個重點]
-2. [第二個重點]
-3. [第三個重點]
-
-✅ 處理結果
-[目前的處理狀態，是否已完成回覆]
-
-💡 備註
-[任何需要注意的事項或建議]
-"""
-    
-    return prompt
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def get_ai_summary(conversation_ids_tuple, conversation_data):
-    """
-    使用 Gemini API 產生對話串摘要
-    
-    參數:
-        conversation_ids_tuple: 對話串 ID 的 tuple (用於快取)
-        conversation_data: 對話串資料列表
-    
-    回傳:
-        摘要文字 或 None
-    """
-    try:
-        # 檢查是否有 Gemini API Key
-        if 'GOOGLE_GEMINI_API_KEY' not in st.secrets:
-            return None
-        
-        import google.generativeai as genai
-        
-        # 設定 API Key
-        genai.configure(api_key=st.secrets['GOOGLE_GEMINI_API_KEY'])
-        
-        # 建立模型
-        model = genai.GenerativeModel('gemini-pro')
-        
-        # 建立 prompt
-        prompt = generate_conversation_summary_prompt(conversation_data)
-        
-        # 呼叫 API
-        response = model.generate_content(prompt)
-        
-        if response and response.text:
-            return response.text
-        else:
-            return None
-        
-    except Exception as e:
-        print(f"AI 摘要失敗: {str(e)}")
-        return None
-
 def update_ocr_result(worksheet, doc_id, ocr_text, status="completed"):
     """
     更新 OCR 辨識結果到 Google Sheets
@@ -2256,36 +2163,6 @@ def show_search_page(docs_sheet, drive_service, deleted_sheet, deleted_folder_id
                                 st.session_state.selected_doc_id = doc_data['ID']
                                 st.session_state.show_detail = True
                                 st.rerun()
-                    
-                    st.markdown("---")
-                    
-                    # AI 摘要功能
-                    summary_key = f"summary_{root_doc['ID']}"
-                    
-                    if summary_key not in st.session_state:
-                        # 顯示產生摘要按鈕
-                        if st.button("🤖 產生 AI 摘要 (Gemini)", key=f"gen_summary_{root_doc['ID']}", use_container_width=True):
-                            with st.spinner("🤖 AI 分析中..."):
-                                # 建立 conversation_ids_tuple 用於快取
-                                conv_ids = tuple([doc['id'] for doc in conversation])
-                                
-                                # 呼叫 Gemini API
-                                summary = get_ai_summary(conv_ids, conversation)
-                                
-                                if summary:
-                                    st.session_state[summary_key] = summary
-                                    st.rerun()
-                                else:
-                                    st.error("❌ AI 摘要產生失敗。請確認已設定 GOOGLE_GEMINI_API_KEY")
-                    else:
-                        # 顯示已產生的摘要
-                        st.markdown("### 🤖 AI 對話串摘要")
-                        st.markdown(st.session_state[summary_key])
-                        
-                        # 清除摘要按鈕
-                        if st.button("🗑️ 清除摘要", key=f"clear_summary_{root_doc['ID']}"):
-                            del st.session_state[summary_key]
-                            st.rerun()
     
     # 顯示詳細資訊
     if 'show_detail' in st.session_state and st.session_state.show_detail and 'selected_doc_id' in st.session_state:
